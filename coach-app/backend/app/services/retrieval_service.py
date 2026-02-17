@@ -80,18 +80,21 @@ class RetrievalService:
 
         query_vec = self.openrouter.embeddings([query])[0]
         limit = top_k or settings.retrieval_top_k
-        result = self.client.search(
+        
+        # 使用 query_points (qdrant-client v1.11+ 推荐 API)
+        result = self.client.query_points(
             collection_name=self.collection,
-            query_vector=query_vec,
+            query=query_vec,
             limit=limit,
             with_payload=True,
         )
+        
         rows: list[dict[str, Any]] = []
-        for item in result:
-            payload = item.payload or {}
+        for point in result.points:
+            payload = point.payload or {}
             rows.append(
                 {
-                    'score': float(item.score),
+                    'score': float(point.score),
                     'content': payload.get('content', ''),
                     'source_path': payload.get('source_path', ''),
                     'source_title': payload.get('source_title', ''),

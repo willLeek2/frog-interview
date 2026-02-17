@@ -573,14 +573,14 @@ class ExperienceMiningService:
         try:
             vector = self.openrouter.embeddings([normalized_question])[0]
             self._ensure_collection(len(vector))
-            result = self.vector_client.search(
+            result = self.vector_client.query_points(
                 collection_name=self.collection,
-                query_vector=vector,
+                query=vector,
                 limit=1,
                 with_payload=True,
             )
-            if result:
-                top = result[0]
+            if result.points:
+                top = result.points[0]
                 payload = top.payload or {}
                 cluster_id = payload.get('cluster_id')
                 if cluster_id and float(top.score) >= self.cluster_threshold:
