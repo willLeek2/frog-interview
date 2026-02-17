@@ -60,5 +60,33 @@ class IndexRebuildResponse(BaseModel):
     collection: str
 
 
+class IndexRebuildTaskCreateRequest(BaseModel):
+    mode: str = 'incremental'  # 'full' 或 'incremental'
+
+
+class IndexRebuildTaskCreateResponse(BaseModel):
+    task_id: str
+    status: str
+    mode: str
+
+
+class IndexRebuildTaskRead(BaseModel):
+    id: str
+    status: str
+    mode: str
+    files_total: int
+    files_scanned: int
+    files_added: int
+    files_updated: int
+    files_unchanged: int
+    chunks_indexed: int
+    topics_count: int
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
 class AudioTranscribeResponse(BaseModel):
     text: str
