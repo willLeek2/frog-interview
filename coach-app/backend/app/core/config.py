@@ -10,6 +10,14 @@ DEFAULT_LOCAL_DATA_DIR = Path(__file__).resolve().parents[2] / 'data'
 DEFAULT_LOCAL_DB_PATH = DEFAULT_LOCAL_DATA_DIR / 'coach_app.db'
 
 
+def _default_resources_dir() -> str:
+    """Local: parents[4]=interview; Docker: /app 无 parents[4]，用 /app/resources"""
+    try:
+        return str(Path(__file__).resolve().parents[4] / 'resources')
+    except IndexError:
+        return '/app/resources'
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
@@ -23,8 +31,8 @@ class Settings(BaseSettings):
     data_dir: str = str(DEFAULT_LOCAL_DATA_DIR)
     database_url: str = f'sqlite:///{DEFAULT_LOCAL_DB_PATH}'
 
-    # Resources
-    resources_dir: str = str(Path(__file__).resolve().parents[4] / 'resources')
+    # Resources（可由 RESOURCES_DIR 覆盖；Docker 下默认 /app/resources）
+    resources_dir: str = Field(default_factory=_default_resources_dir, validation_alias='RESOURCES_DIR')
 
     # Qdrant
     qdrant_url: str = 'http://qdrant:6333'
