@@ -5,6 +5,8 @@ import type {
   ExperienceHotQuestion,
   ExperienceProcessTask,
   FeatureType,
+  IndexRebuildMode,
+  IndexRebuildTask,
   Message,
   Session,
   SessionDetail,
@@ -49,8 +51,23 @@ export async function sendMessage(sessionId: string, content: string): Promise<M
   })
 }
 
-export async function rebuildIndex(): Promise<{ files_scanned: number; chunks_indexed: number }> {
-  return request('/api/v1/index/rebuild', { method: 'POST' })
+export async function rebuildIndex(mode: IndexRebuildMode = 'incremental'): Promise<{
+  task_id: string
+  status: string
+  mode: string
+}> {
+  return request('/api/v1/index/rebuild', {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
+  })
+}
+
+export async function getIndexRebuildTask(taskId: string): Promise<IndexRebuildTask> {
+  return request<IndexRebuildTask>(`/api/v1/index/rebuild/tasks/${taskId}`)
+}
+
+export async function listIndexRebuildTasks(limit = 10): Promise<IndexRebuildTask[]> {
+  return request<IndexRebuildTask[]>(`/api/v1/index/rebuild/tasks?limit=${limit}`)
 }
 
 export async function transcribeAudio(file: File): Promise<string> {

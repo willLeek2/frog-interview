@@ -126,3 +126,25 @@ export interface ExperienceClusterDetail {
   variants: ExperienceClusterVariant[]
   source_batches: ExperienceClusterSourceBatch[]
 }
+
+// Index rebuild types
+export type IndexRebuildMode = 'full' | 'incremental'
+export type IndexRebuildTaskStatus = 'queued' | 'running' | 'completed' | 'failed'
+
+export interface IndexRebuildTask {
+  id: string
+  status: IndexRebuildTaskStatus
+  mode: IndexRebuildMode
+  files_total: number
+  files_scanned: number
+  files_added: number
+  files_updated: number
+  files_unchanged: number
+  chunks_indexed: number
+  topics_count: number
+  error_message?: string | null
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  finished_at?: string | null
+}

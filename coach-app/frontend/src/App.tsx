@@ -5,8 +5,15 @@ import ExperiencePanel from './components/ExperiencePanel'
 import FeatureMenu from './components/FeatureMenu'
 import MessageList from './components/MessageList'
 import SessionList from './components/SessionList'
-import { createSession, getSessionDetail, listSessions, rebuildIndex, sendMessage } from './lib/api'
-import type { FeatureType, Message, Session } from './lib/types'
+import {
+  createSession,
+  getIndexRebuildTask,
+  getSessionDetail,
+  listSessions,
+  rebuildIndex,
+  sendMessage,
+} from './lib/api'
+import type { FeatureType, IndexRebuildMode, IndexRebuildTask, Message, Session } from './lib/types'
 
 const TITLES: Record<FeatureType, string> = {
   random: '随机抽题',
@@ -47,6 +54,7 @@ export default function App() {
   const [sending, setSending] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [indexing, setIndexing] = useState(false)
+  const [indexTask, setIndexTask] = useState<IndexRebuildTask | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const activeSession = useMemo(
@@ -143,16 +151,38 @@ export default function App() {
     }
   }
 
-  const onRebuildIndex = async () => {
+  const onRebuildIndex = async (mode: IndexRebuildMode) => {
     setIndexing(true)
     setError(null)
     try {
-      await rebuildIndex()
+      const { task_id } = await rebuildIndex(mode)
+      // 开始轮询任务进度
+      pollIndexTask(task_id)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
       setIndexing(false)
     }
+  }
+
+  const pollIndexTask = (taskId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const task = await getIndexRebuildTask(taskId)
+        setIndexTask(task)
+        if (task.status === 'completed' || task.status === 'failed') {
+          clearInterval(interval)
+          setIndexing(false)
+          if (task.status === 'completed') {
+            // 3 秒后自动清空任务展示
+            setTimeout(() => setIndexTask(null), 5000)
+          }
+        }
+      } catch (e) {
+        clearInterval(interval)
+        setIndexing(false)
+        setError((e as Error).message)
+      }
+    }, 1000)
   }
 
   return (
@@ -215,12 +245,65 @@ export default function App() {
             </div>
 
             {isChatFeature && (
-              <button
-                onClick={() => void onRebuildIndex()}
-                className="rounded-lg border border-primary-200 px-3 py-1 text-xs text-primary-700 hover:bg-primary-50"
-              >
-                {indexing ? '索引中...' : '重建索引'}
-              </button>
+              <div className="flex items-center gap-2">
+                {/* 索引进度展示 */}
+                {indexTask && (
+                  <div className="mr-2 flex items-center gap-2 text-xs">
+                    <div className="flex flex-col items-end">
+                      <span className="text-primary-700">
+                        {indexTask.mode === 'full' ? '全量重建' : '增量更新'}
+                        {' · '}
+                        {indexTask.status === 'running' && '处理中...'}
+                        {indexTask.status === 'completed' && '完成'}
+                        {indexTask.status === 'failed' && '失败'}
+                      </span>
+                      <span className="text-primary-500">
+                        {indexTask.files_scanned}/{indexTask.files_total} 文件
+                        {indexTask.mode === 'incremental' && indexTask.files_added + indexTask.files_updated > 0 && (
+                          <>
+                            {' · '}新增 {indexTask.files_added}
+                            {' · '}更新 {indexTask.files_updated}
+                          </>
+                        )}
+                        {' · '}{indexTask.chunks_indexed} chunks
+                      </span>
+                    </div>
+                    {/* 进度条 */}
+                    <div className="h-8 w-1 overflow-hidden rounded-full bg-primary-100">
+                      <div
+                        className={`w-full transition-all duration-300 ${
+                          indexTask.status === 'failed' ? 'bg-red-400' : 'bg-green-500'
+                        }`}
+                        style={{
+                          height: indexTask.files_total > 0
+                            ? `${(indexTask.files_scanned / indexTask.files_total) * 100}%`
+                            : '0%',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 增量更新按钮 */}
+                <button
+                  onClick={() => void onRebuildIndex('incremental')}
+                  disabled={indexing}
+                  className="rounded-lg border border-primary-200 px-3 py-1 text-xs text-primary-700 hover:bg-primary-50 disabled:opacity-50"
+                  title="只索引新增或变更的文件，速度快"
+                >
+                  {indexing && indexTask?.mode === 'incremental' ? '更新中...' : '更新索引'}
+                </button>
+
+                {/* 全量重建按钮 */}
+                <button
+                  onClick={() => void onRebuildIndex('full')}
+                  disabled={indexing}
+                  className="rounded-lg border border-primary-200 bg-primary-50 px-3 py-1 text-xs text-primary-700 hover:bg-primary-100 disabled:opacity-50"
+                  title="清空后全部重新索引，最彻底"
+                >
+                  {indexing && indexTask?.mode === 'full' ? '重建中...' : '重建索引'}
+                </button>
+              </div>
             )}
           </header>
 
