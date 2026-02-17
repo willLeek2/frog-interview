@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import re
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -123,8 +123,8 @@ class IndexingService:
         return chunks
 
     def _chunk_id(self, rel_path: str, idx: int, chunk: str) -> str:
-        digest = hashlib.sha1(f'{rel_path}:{idx}:{chunk[:160]}'.encode('utf-8')).hexdigest()
-        return digest
+        name = f'{rel_path}:{idx}:{chunk[:160]}'
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
     def _save_topics(self, db: Session, topics: Counter[str]) -> None:
         db.exec(delete(TopicStat))
