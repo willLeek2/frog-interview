@@ -19,17 +19,20 @@
 
 ```bash
 cp backend/.env.example backend/.env
+cp .env.example .env   # 可选：自定义端口，默认 3000/8000/6333
 # 编辑 backend/.env，至少填 OPENROUTER_API_KEY
 # 如果启用混合联网检索，填 PERPLEXITY_API_KEY 和 JINA_API_KEY
+# 自定义端口时编辑 .env 中的 FRONTEND_PORT、BACKEND_PORT、QDRANT_PORT
 ```
 
 2. 启动服务：
 
 ```bash
 docker compose up -d --build
+# 若需 Qdrant 内存限制生效，使用：docker compose --compatibility up -d --build
 ```
 
-3. 访问：
+3. 访问（默认端口，自定义见 `.env`）：
 - 前端：[http://localhost:3000](http://localhost:3000)
 - 后端健康检查：[http://localhost:8000/health](http://localhost:8000/health)
 

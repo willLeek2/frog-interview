@@ -7,7 +7,7 @@
 ### 推荐模式（与后端同 compose）
 - 直接使用项目根目录 `docker-compose.yml`
 - 前端容器内 Nginx 已配置 `/api` 反向代理到 `http://backend:8000/api/`
-- 浏览器只需要访问前端地址，例如 `http://<server-ip>:3000`
+- 浏览器只需要访问前端地址，例如 `http://<server-ip>:3000`；Docker 宿主机端口可在 `coach-app/.env` 中通过 `FRONTEND_PORT` 自定义
 
 ### 独立模式（前端单独部署）
 - 可以单独构建前端镜像

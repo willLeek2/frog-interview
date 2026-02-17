@@ -6,9 +6,17 @@ services:
     container_name: coach-qdrant
     restart: unless-stopped
     ports:
-      - '6333:6333'
+      - '${QDRANT_PORT:-6333}:6333'
     volumes:
       - ./qdrant_storage:/qdrant/storage
+    # 内存限制：非 Swarm 模式下需用 docker compose --compatibility up 才能生效
+    deploy:
+      resources:
+        limits:
+          memory: ${QDRANT_MEMORY_LIMIT:-1G}
+    # 低资源模式：payload 落盘，减少内存占用（适合面试资料等小规模场景）
+    environment:
+      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
 
   backend:
     build:
@@ -24,7 +32,7 @@ services:
       - ./backend/data:/app/data
       - ../resources:/app/resources:ro
     ports:
-      - '8000:8000'
+      - '${BACKEND_PORT:-8000}:8000'
 
   frontend:
     build:
@@ -35,5 +43,5 @@ services:
     depends_on:
       - backend
     ports:
-      - '3000:80'
+      - '${FRONTEND_PORT:-3000}:80'
 

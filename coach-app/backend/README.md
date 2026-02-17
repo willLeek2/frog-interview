@@ -37,12 +37,13 @@
 
 ### Step 0: 准备环境
 1. 安装 Docker + Docker Compose（plugin）。
-2. 服务器放通端口：`3000`（前端）、`8000`（后端，可选内网）、`6333`（Qdrant，可选内网）。
+2. 服务器放通端口：默认 `3000`（前端）、`8000`（后端，可选内网）、`6333`（Qdrant）；可在 `coach-app/.env` 中通过 `FRONTEND_PORT`、`BACKEND_PORT`、`QDRANT_PORT` 自定义。
 
 ### Step 1: 准备配置文件
 1. 复制配置：
 ```bash
 cp backend/.env.example backend/.env
+cp .env.example .env   # 可选：自定义端口
 ```
 2. 编辑 `backend/.env`，至少填写：
 ```env
@@ -57,11 +58,12 @@ JINA_API_KEY=你的key
 ### Step 2: 启动服务
 ```bash
 docker compose up -d --build
+# 若需 Qdrant 内存限制生效：docker compose --compatibility up -d --build
 ```
 
 ### Step 3: 健康检查
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/health   # 若自定义了 BACKEND_PORT，请替换端口
 ```
 预期返回 `{"status":"ok"}`。
 
@@ -98,7 +100,20 @@ curl "http://127.0.0.1:8000/api/v1/experience/hot-questions?days=180&limit=20"
 curl "http://127.0.0.1:8000/api/v1/experience/clusters/<cluster_id>"
 ```
 
-## 4. 数据持久化与备份
+## 4. Qdrant 配置说明
+
+- **版本**：当前固定 `v1.15.3`，与 qdrant-client 兼容；如需升级可查 [Qdrant 发布页](https://github.com/qdrant/qdrant/releases)
+- **持久化**：`./qdrant_storage` 挂载到容器 `/qdrant/storage`，数据落盘宿主机
+- **内存限制**：`.env` 中 `QDRANT_MEMORY_LIMIT`（默认 1G）；非 Swarm 模式下需 `docker compose --compatibility up` 才能生效
+- **低资源**：已启用 `ON_DISK_PAYLOAD=true`，payload 落盘以减内存
+
+## 5. 端口配置
+
+- 宿主机端口在 `coach-app/.env` 中配置：`FRONTEND_PORT`、`BACKEND_PORT`、`QDRANT_PORT`
+- 复制 `coach-app/.env.example` 为 `coach-app/.env` 后修改
+- 后端监听端口 `APP_PORT` 在 `backend/.env` 中，仅影响本地 `uvicorn`；Docker 容器内固定 8000
+
+## 6. 数据持久化与备份
 
 ### 需要备份的内容
 - `backend/data/coach_app.db`（SQLite）
@@ -112,7 +127,7 @@ tar -czf coach-backup-$(date +%F).tar.gz \
   qdrant_storage
 ```
 
-## 5. 资源建议与限制
+## 7. 资源建议与限制
 
 - 建议起步：2 vCPU / 4GB RAM / 20GB 磁盘
 - 当前版本建议：单 backend 实例（1 worker）
@@ -121,7 +136,7 @@ tar -czf coach-backup-$(date +%F).tar.gz \
 2. 把进程内队列升级为 Redis + Celery/RQ/Arq
 3. 再做 backend 水平扩容
 
-## 6. 常见问题
+## 8. 常见问题
 
 ### Q1: 处理任务长时间 `queued`
 - 先看后端日志：`docker logs coach-backend --tail 200`
