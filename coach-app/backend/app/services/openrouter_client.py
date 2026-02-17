@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -37,17 +37,32 @@ class OpenRouterClient:
                     break
         raise RuntimeError(f'OpenRouter 请求失败: {last_err}')
 
-    def default_provider_preferences(self) -> dict[str, Any]:
+    def _parse_provider_order(self, raw: str | None) -> list[str]:
+        if not raw:
+            return []
+        return [x.strip() for x in raw.split(',') if x.strip()]
+
+    def provider_preferences(self, purpose: Literal['chat', 'embedding', 'audio', 'vision'] = 'chat') -> dict[str, Any]:
         provider: dict[str, Any] = {
             'allow_fallbacks': settings.openrouter_allow_fallbacks,
             'sort': settings.openrouter_provider_sort,
             'data_collection': 'deny',
         }
-        if settings.openrouter_provider_order:
-            order = [x.strip() for x in settings.openrouter_provider_order.split(',') if x.strip()]
-            if order:
-                provider['order'] = order
+        purpose_order_map = {
+            'chat': settings.openrouter_chat_provider_order,
+            'embedding': settings.openrouter_embedding_provider_order,
+            'audio': settings.openrouter_audio_provider_order,
+            'vision': settings.openrouter_vision_provider_order,
+        }
+        order = self._parse_provider_order(purpose_order_map.get(purpose)) or self._parse_provider_order(
+            settings.openrouter_provider_order
+        )
+        if order:
+            provider['order'] = order
         return provider
+
+    def default_provider_preferences(self) -> dict[str, Any]:
+        return self.provider_preferences('chat')
 
     def chat_completion(
         self,
@@ -62,7 +77,7 @@ class OpenRouterClient:
             'messages': messages,
             'stream': False,
         }
-        payload['provider'] = provider or self.default_provider_preferences()
+        payload['provider'] = provider or self.provider_preferences('chat')
         if plugins:
             payload['plugins'] = plugins
         if extra_body:
@@ -73,7 +88,7 @@ class OpenRouterClient:
         payload = {
             'model': model or settings.openrouter_embedding_model,
             'input': inputs,
-            'provider': self.default_provider_preferences(),
+            'provider': self.provider_preferences('embedding'),
         }
         data = self._post('/embeddings', payload)
         return [item['embedding'] for item in data.get('data', [])]
@@ -92,6 +107,7 @@ class OpenRouterClient:
                 }
             ],
             'stream': False,
+            'provider': self.provider_preferences('audio'),
         }
         data = self._post('/chat/completions', payload)
         choices = data.get('choices', [])

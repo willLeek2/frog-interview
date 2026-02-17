@@ -49,6 +49,15 @@ cp .env.example .env   # 可选：自定义端口
 ```env
 OPENROUTER_API_KEY=你的key
 ```
+如需给不同用途模型分别指定 OpenRouter provider 顺序，可选填写：
+```env
+OPENROUTER_CHAT_PROVIDER_ORDER=openai,anthropic
+OPENROUTER_EMBEDDING_PROVIDER_ORDER=openai
+OPENROUTER_AUDIO_PROVIDER_ORDER=openai
+OPENROUTER_VISION_PROVIDER_ORDER=openai,google
+# 兜底顺序（当上述某项为空时生效）
+OPENROUTER_PROVIDER_ORDER=
+```
 3. 如需 Explain 联网检索，额外填写：
 ```env
 PERPLEXITY_API_KEY=你的key

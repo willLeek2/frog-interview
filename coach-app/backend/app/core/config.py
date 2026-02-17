@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     openrouter_audio_model: str = 'openai/gpt-4o-mini-transcribe'
     openrouter_vision_model: str = 'openai/gpt-4.1-mini'
     openrouter_timeout_seconds: int = 45
+    openrouter_chat_provider_order: str | None = None
+    openrouter_embedding_provider_order: str | None = None
+    openrouter_audio_provider_order: str | None = None
+    openrouter_vision_provider_order: str | None = None
     openrouter_provider_order: str | None = None
     openrouter_allow_fallbacks: bool = True
     openrouter_provider_sort: str = 'price'

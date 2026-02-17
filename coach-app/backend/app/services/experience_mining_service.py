@@ -513,7 +513,7 @@ class ExperienceMiningService:
                         ],
                     }
                 ],
-                provider=self.openrouter.default_provider_preferences(),
+                provider=self.openrouter.provider_preferences('vision'),
                 extra_body={'response_format': response_schema},
             )
             content = self._extract_content_text(data)
@@ -543,7 +543,7 @@ class ExperienceMiningService:
                     ],
                 }
             ],
-            provider=self.openrouter.default_provider_preferences(),
+            provider=self.openrouter.provider_preferences('vision'),
         )
         text = self._extract_content_text(fallback)
         parsed = self._parse_json_content(text)
