@@ -1,0 +1,6 @@
+PyMuPDF
+PyYAML
+requests
+Pillow
+python-dotenv
+rich

@@ -1,0 +1,7 @@
+[submodule "CS-Base"]
+    path = resources/CS-Base
+    url = https://github.com/xiaolincoder/CS-Base.git
+
+[submodule "JavaGuide"]
+    path = resources/JavaGuide
+    url = https://github.com/Snailclimb/JavaGuide.git

@@ -1,0 +1,65 @@
+pdf:
+  # 批处理模式：遍历该目录下的所有 PDF（仅第一层，不递归）
+  root: /Users/frog_wch/playground/Career/interview/resources/xiaolin-java/pdfs
+  # 单文件兼容模式（可选）：不使用 root 时可改用 path
+  # path: /Users/frog_wch/playground/Career/interview/xiaolin-java/java-basics.pdf
+  page_start: 1
+  page_end: null
+
+render:
+  dpi: 200
+  format: jpeg
+  jpeg_quality: 85
+  max_side_px: 2200
+  crop:
+    left: 0.0
+    right: 0.0
+    top: 0.0
+    bottom: 0.0
+
+openrouter:
+  env_file: .env
+  api_key_env: OPENROUTER_API_KEY
+  model: moonshotai/kimi-k2.5
+  provider:
+    order:
+      - fireworks
+      - moonshotai/int4
+    allow_fallbacks: true
+  headers:
+    HTTP-Referer: "https://frogwch.com"
+    X-Title: "pdf-ocr"
+  timeout_sec: 120
+  max_tokens: 65536
+  retries: 5
+  rate_limit_qps: 0.5
+
+prompt:
+  system: |
+    你是 OCR 与排版助手。OCR内容仅包含正文内容，忽略页眉/页脚、页码、水印、侧栏、导航等非正文文字。
+    请把给定的页面图片转成 Markdown 源文本，保持版式结构，不论文本是否因为页面分页原因被截断，都保持完全原样输出正文文本
+    （标题层级、列表、表格、代码块、粗体/斜体）。只输出和给定图片的正文呈现的 Markdown 格式相同的Markdown源文本。
+    不要添加解释，也不要用代码块包裹。
+    看不清的字符请用 [UNK] 占位，不要猜测补全。
+  user_template: |
+    第 {page_number}/{total_pages} 页。
+    请把正文转写为 Markdown 源文本。
+
+output:
+  # 批处理总输出目录：
+  # - 每个 PDF 的分页结果目录: {root}/{pdf_stem}/
+  # - 每个 PDF 的合并文件:   {root}/{prefix}-{pdf_stem}.md
+  root: /Users/frog_wch/playground/Career/interview/resources/xiaolin-java/tools/openrouter_pdf2md/output/260217
+  prefix: out
+  # 单文件兼容模式（可选）：不使用 output.root 时可改用以下字段
+  # markdown_path: ./output/out.md
+  # pages_dir: ./output/pages
+  include_page_separators: true
+  page_separator: "\n\n---\n\n<!-- page:{n} -->\n\n"
+  print_progress: true
+  preview_chars: 200
+  preview_compact: true
+
+concurrency:
+  # 单个 PDF 内部按页并发 worker 数量
+  workers: 5

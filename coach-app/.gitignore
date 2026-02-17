@@ -1,0 +1,7 @@
+backend/.env
+backend/data/
+backend/**/__pycache__/
+backend/**/*.pyc
+qdrant_storage/
+frontend/node_modules/
+frontend/dist/

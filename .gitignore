@@ -1,0 +1,10 @@
+
+agent-working-docs/
+
+node_modules/
+
+pdfs/
+
+.DS_Store
+
+__pycache__/

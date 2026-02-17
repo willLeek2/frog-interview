@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/composer.tsx","./src/components/featuremenu.tsx","./src/components/messagelist.tsx","./src/components/sessionlist.tsx","./src/components/voiceinput.tsx","./src/lib/api.ts","./src/lib/types.ts"],"errors":true,"version":"5.9.3"}

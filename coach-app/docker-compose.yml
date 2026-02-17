@@ -1,0 +1,39 @@
+version: '3.9'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.3
+    container_name: coach-qdrant
+    restart: unless-stopped
+    ports:
+      - '6333:6333'
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: coach-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - qdrant
+    volumes:
+      - ./backend/data:/app/data
+      - ../resources:/app/resources:ro
+    ports:
+      - '8000:8000'
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: coach-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '3000:80'
+

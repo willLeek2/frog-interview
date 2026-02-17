@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f4f9ff;
+  --panel: #ffffff;
+  --ink: #0c2a4d;
+  --line: #d7e9ff;
+}
+
+body {
+  margin: 0;
+  font-family: 'Avenir Next', 'SF Pro Text', 'PingFang SC', 'Helvetica Neue', sans-serif;
+  color: var(--ink);
+  background: radial-gradient(1200px 800px at 20% -10%, #d8edff, transparent 60%),
+    radial-gradient(1000px 700px at 100% 0%, #eef7ff, transparent 55%), var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
