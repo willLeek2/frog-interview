@@ -503,7 +503,7 @@ class ExperienceMiningService:
 
         try:
             data = self.openrouter.chat_completion(
-                model=settings.openrouter_vision_model,
+                model=self.openrouter.model_for('vision'),
                 messages=[
                     {
                         'role': 'user',
@@ -526,7 +526,7 @@ class ExperienceMiningService:
 
         # 兼容：结构化输出不可用时，退化为文本 JSON 指令
         fallback = self.openrouter.chat_completion(
-            model=settings.openrouter_vision_model,
+            model=self.openrouter.model_for('vision'),
             messages=[
                 {
                     'role': 'user',

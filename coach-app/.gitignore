@@ -1,5 +1,6 @@
 .env
 backend/.env
+backend/config/llms.local.json
 backend/data/
 backend/**/__pycache__/
 backend/**/*.pyc

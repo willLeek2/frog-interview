@@ -44,21 +44,34 @@
 ```bash
 cp backend/.env.example backend/.env
 cp .env.example .env   # 可选：自定义端口
+cp backend/config/llms.local.example.json backend/config/llms.local.json
 ```
 2. 编辑 `backend/.env`，至少填写：
 ```env
 OPENROUTER_API_KEY=你的key
 ```
-如需给不同用途模型分别指定 OpenRouter provider 顺序，可选填写：
-```env
-OPENROUTER_CHAT_PROVIDER_ORDER=openai,anthropic
-OPENROUTER_EMBEDDING_PROVIDER_ORDER=openai
-OPENROUTER_AUDIO_PROVIDER_ORDER=openai
-OPENROUTER_VISION_PROVIDER_ORDER=openai,google
-# 兜底顺序（当上述某项为空时生效）
-OPENROUTER_PROVIDER_ORDER=
+3. 编辑 `backend/config/llms.local.json` 配置 OpenRouter 模型与 provider 顺序（容器和本地都可热加载，无需重启）：
+```json
+{
+  "openrouter": {
+    "chat_model": "openai/gpt-4.1-mini",
+    "embedding_model": "openai/text-embedding-3-small",
+    "audio_model": "openai/gpt-4o-mini-transcribe",
+    "vision_model": "openai/gpt-4.1-mini",
+    "timeout_seconds": 45,
+    "provider": {
+      "allow_fallbacks": true,
+      "sort": "price",
+      "chat_order": ["openai", "anthropic"],
+      "embedding_order": ["openai"],
+      "audio_order": ["openai"],
+      "vision_order": ["openai", "google"]
+    }
+  }
+}
 ```
-3. 如需 Explain 联网检索，额外填写：
+4. `backend/.env` 中的 `OPENROUTER_*` 仍可作为兜底值；`llms.local.json` 缺失或字段为空时会回退到这些兜底配置。
+5. 如需 Explain 联网检索，额外填写：
 ```env
 PERPLEXITY_API_KEY=你的key
 JINA_API_KEY=你的key
@@ -69,6 +82,7 @@ JINA_API_KEY=你的key
 docker compose up -d --build
 # 若需 Qdrant 内存限制生效：docker compose --compatibility up -d --build
 ```
+说明：`docker-compose.yml` 已将宿主机 `backend/config` 挂载到容器 `/app/config`，所以容器内读取的是宿主机上的 `llms.local.json`。
 
 ### Step 3: 健康检查
 ```bash

@@ -30,6 +30,7 @@ services:
       - qdrant
     volumes:
       - ./backend/data:/app/data
+      - ./backend/config:/app/config:ro
       - ../resources:/app/resources:ro
     ports:
       - '${BACKEND_PORT:-8000}:8000'

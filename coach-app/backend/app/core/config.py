@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     openrouter_audio_model: str = 'openai/gpt-4o-mini-transcribe'
     openrouter_vision_model: str = 'openai/gpt-4.1-mini'
     openrouter_timeout_seconds: int = 45
+    llms_config_path: str = 'config/llms.local.json'
     openrouter_chat_provider_order: str | None = None
     openrouter_embedding_provider_order: str | None = None
     openrouter_audio_provider_order: str | None = None
