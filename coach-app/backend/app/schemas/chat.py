@@ -53,6 +53,41 @@ class AssistantReply(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ChatRunTaskCreateResponse(BaseModel):
+    task_id: str
+    session_id: str
+    status: str
+    stage: str
+    stage_label: str
+
+
+class ChatRunTaskRead(BaseModel):
+    id: str
+    session_id: str
+    user_message_id: str | None = None
+    result_message_id: str | None = None
+    status: str
+    stage: str
+    stage_label: str
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class CitationContentRead(BaseModel):
+    title: str | None = None
+    url: str | None = None
+    source: str | None = None
+    render_mode: str = 'raw_text'
+    content: str = ''
+    external_url: str | None = None
+    truncated: bool = False
+
+
 class IndexRebuildResponse(BaseModel):
     files_scanned: int
     chunks_indexed: int

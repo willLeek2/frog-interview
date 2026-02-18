@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, Callable
 
 from sqlmodel import Session, desc, select
 
-from app.models.chat import ChatMessage, ChatSession, FeatureType, TopicStat
+from app.models.chat import ChatMessage, ChatRunStage, ChatSession, FeatureType, TopicStat
 from app.schemas.chat import AssistantReply, Citation
 from app.services.openrouter_client import OpenRouterClient
 from app.services.retrieval_service import RetrievalService
@@ -18,10 +18,22 @@ class CoachService:
         self.retrieval = RetrievalService()
         self.web_research = WebResearchService()
 
-    def generate_reply(self, db: Session, session: ChatSession, user_message: str) -> AssistantReply:
+    def generate_reply(
+        self,
+        db: Session,
+        session: ChatSession,
+        user_message: str,
+        on_progress: Callable[[ChatRunStage, str, str], None] | None = None,
+    ) -> AssistantReply:
+        def report(stage: ChatRunStage, label: str, detail: str = '') -> None:
+            if on_progress:
+                on_progress(stage, label, detail)
+
         history = self._load_recent_history(db, session.id)
 
+        report(ChatRunStage.TOOL_CALL, '本地向量检索中', '正在执行 embedding 检索候选资料')
         local_hits = self.retrieval.search(user_message)
+        report(ChatRunStage.LOCAL_RETRIEVAL, '本地资料检索完成', f'命中 {len(local_hits)} 条资料片段')
         local_context = self._format_local_context(local_hits)
         citations = self._local_citations(local_hits)
 
@@ -30,6 +42,7 @@ class CoachService:
         metadata: dict[str, Any] = {'feature': session.feature.value}
 
         if session.feature == FeatureType.EXPLAIN:
+            report(ChatRunStage.WEB_RESEARCH, '外网检索中', '正在调用搜索与网页抓取工具')
             try:
                 web_data = self.web_research.run_hybrid(user_message)
                 metadata['web_provider'] = web_data.get('provider')
@@ -41,6 +54,7 @@ class CoachService:
                 )
                 citations.extend(self._web_citations(web_data))
             except Exception:
+                report(ChatRunStage.WEB_RESEARCH, '外网检索降级', '主检索失败，切换 OpenRouter Web 回退')
                 fallback = self.web_research.fallback_with_openrouter_web(user_message)
                 metadata['web_provider'] = fallback.get('provider')
                 extra_user_context = f'\n\n[外网检索摘要]\n{fallback.get("answer", "")}\n'
@@ -63,6 +77,7 @@ class CoachService:
             }
         )
 
+        report(ChatRunStage.LLM_GENERATION, '生成回答中', '正在综合资料组织最终回答')
         data = self.openrouter.chat_completion(
             messages=messages,
             provider=self.openrouter.default_provider_preferences(),
@@ -90,12 +105,11 @@ class CoachService:
     def _system_prompt_by_feature(self, feature: FeatureType) -> str:
         common = (
             '你是 Java 后端面试辅导助手。优先使用本地资料结论。回答结构：\n'
-            '1) 直接回答（定义/结论+机制+边界）\n'
+            '1) 直接回答（必须详细，按定义/结论 -> 核心机制 -> 边界条件展开）\n'
             '2) 面试关联考点\n'
             '3) 面试官追问与回答要点\n'
-            '4) 推荐回答（30秒版+展开）\n'
-            '5) 易错点\n'
-            '6) 资料定位（本地路径+关键词）\n'
+            '4) 回答必讲点（面试官希望听到的关键点清单）\n'
+            '5) 资料定位（本地路径+关键词）\n'
             '默认中文。内容务实，不空泛。'
         )
 
@@ -104,9 +118,9 @@ class CoachService:
         if feature == FeatureType.RANDOM:
             return (
                 common
-                + '\n随机抽题模式：先出1题；用户作答后给参考答案要点、评分建议和资料定位。'
+                + '\n随机抽题模式：先出1题；用户作答后给参考答案要点、评分建议和资料定位。不输出固定话术模板。'
             )
-        return common + '\n出题模式：围绕用户给定主题出题，给答案要点和追问。'
+        return common + '\n出题模式：围绕用户给定主题出题，给答案要点和追问。不输出固定话术模板。'
 
     def _format_local_context(self, hits: list[dict[str, Any]]) -> str:
         if not hits:

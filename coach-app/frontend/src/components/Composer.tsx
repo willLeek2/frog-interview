@@ -54,18 +54,27 @@ export default function Composer({ disabled = false, placeholder, quickActions =
             setText((prev) => (prev ? `${prev}\n${voiceText}` : voiceText))
           }}
         />
-        <button
-          onClick={submit}
-          disabled={disabled || sending}
-          className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {sending ? '发送中...' : '发送'}
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-primary-500">⌘/Ctrl + Enter 发送</span>
+          <button
+            onClick={submit}
+            disabled={disabled || sending}
+            className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {sending ? '发送中...' : '发送'}
+          </button>
+        </div>
       </div>
 
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault()
+            void submit()
+          }
+        }}
         placeholder={placeholder || '输入问题，支持追问...'}
         className="h-24 w-full resize-none rounded-xl border border-primary-200 p-3 text-sm outline-none focus:border-primary-400"
       />

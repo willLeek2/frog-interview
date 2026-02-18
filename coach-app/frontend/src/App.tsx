@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
+import CitationViewer from './components/CitationViewer'
 import Composer from './components/Composer'
 import ExperiencePanel from './components/ExperiencePanel'
 import FeatureMenu from './components/FeatureMenu'
@@ -7,13 +8,25 @@ import MessageList from './components/MessageList'
 import SessionList from './components/SessionList'
 import {
   createSession,
+  deleteSession,
+  getChatTask,
+  getCitationContent,
   getIndexRebuildTask,
   getSessionDetail,
   listSessions,
   rebuildIndex,
   sendMessage,
 } from './lib/api'
-import type { FeatureType, IndexRebuildMode, IndexRebuildTask, Message, Session } from './lib/types'
+import type {
+  ChatRunTask,
+  Citation,
+  CitationContent,
+  FeatureType,
+  IndexRebuildMode,
+  IndexRebuildTask,
+  Message,
+  Session,
+} from './lib/types'
 
 const TITLES: Record<FeatureType, string> = {
   random: '随机抽题',
@@ -52,10 +65,16 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
+  const [chatTask, setChatTask] = useState<ChatRunTask | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [indexing, setIndexing] = useState(false)
   const [indexTask, setIndexTask] = useState<IndexRebuildTask | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [citationOpen, setCitationOpen] = useState(false)
+  const [citationLoading, setCitationLoading] = useState(false)
+  const [citationError, setCitationError] = useState<string | null>(null)
+  const [citationData, setCitationData] = useState<CitationContent | null>(null)
+  const chatTaskPollerRef = useRef<number | null>(null)
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
@@ -63,6 +82,13 @@ export default function App() {
   )
   const isExperience = feature === 'experience'
   const isChatFeature = !isExperience
+
+  const stopChatTaskPolling = () => {
+    if (chatTaskPollerRef.current) {
+      window.clearInterval(chatTaskPollerRef.current)
+      chatTaskPollerRef.current = null
+    }
+  }
 
   const loadSessions = async (nextFeature: FeatureType) => {
     setError(null)
@@ -90,6 +116,8 @@ export default function App() {
   }
 
   useEffect(() => {
+    stopChatTaskPolling()
+    setChatTask(null)
     if (isChatFeature) {
       void loadSessions(feature)
       return
@@ -101,8 +129,16 @@ export default function App() {
 
   useEffect(() => {
     if (!isChatFeature || !activeSessionId) return
+    stopChatTaskPolling()
+    setChatTask(null)
     void loadSessionDetail(activeSessionId)
   }, [activeSessionId, isChatFeature])
+
+  useEffect(() => {
+    return () => {
+      stopChatTaskPolling()
+    }
+  }, [])
 
   const onCreateSession = async () => {
     if (!isChatFeature) return
@@ -117,11 +153,63 @@ export default function App() {
     }
   }
 
+  const onDeleteSession = async (sessionId: string) => {
+    if (!isChatFeature) return
+    if (!window.confirm('确认删除这个会话吗？删除后不可恢复。')) return
+    setError(null)
+    try {
+      await deleteSession(sessionId)
+      const refreshed = await listSessions(feature)
+      setSessions(refreshed)
+      if (activeSessionId === sessionId) {
+        stopChatTaskPolling()
+        setSending(false)
+        setChatTask(null)
+        if (refreshed.length > 0) {
+          setActiveSessionId(refreshed[0].id)
+          void loadSessionDetail(refreshed[0].id)
+        } else {
+          setActiveSessionId(null)
+          setMessages([])
+        }
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
+  const pollChatTask = (taskId: string, sessionId: string, featureType: FeatureType) => {
+    stopChatTaskPolling()
+    chatTaskPollerRef.current = window.setInterval(async () => {
+      try {
+        const task = await getChatTask(taskId)
+        setChatTask(task)
+        if (task.status === 'completed') {
+          stopChatTaskPolling()
+          setSending(false)
+          await loadSessionDetail(sessionId)
+          const refreshed = await listSessions(featureType)
+          setSessions(refreshed)
+        } else if (task.status === 'failed') {
+          stopChatTaskPolling()
+          setSending(false)
+          setError(task.error_message || '回答生成失败，请稍后重试。')
+        }
+      } catch (e) {
+        stopChatTaskPolling()
+        setSending(false)
+        setError((e as Error).message)
+      }
+    }, 1200)
+  }
+
   const onSend = async (content: string) => {
     if (!isChatFeature) return
+    setError(null)
     let targetSessionId = activeSessionId
+    const featureForSend = feature
     if (!targetSessionId) {
-      const created = await createSession(feature)
+      const created = await createSession(featureForSend)
       setSessions((prev) => [created, ...prev])
       setActiveSessionId(created.id)
       targetSessionId = created.id
@@ -138,16 +226,44 @@ export default function App() {
     }
     setMessages((prev) => [...prev, optimistic])
     setSending(true)
+    setChatTask(null)
 
     try {
-      const assistant = await sendMessage(targetSessionId, content)
-      setMessages((prev) => [...prev, assistant])
-      const refreshed = await listSessions(feature)
-      setSessions(refreshed)
+      const queued = await sendMessage(targetSessionId, content)
+      setChatTask({
+        id: queued.task_id,
+        session_id: queued.session_id,
+        status: queued.status,
+        stage: queued.stage,
+        stage_label: queued.stage_label,
+        events: [],
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      pollChatTask(queued.task_id, targetSessionId, featureForSend)
     } catch (e) {
       setError((e as Error).message)
-    } finally {
       setSending(false)
+    }
+  }
+
+  const onOpenCitation = async (citation: Citation) => {
+    setCitationOpen(true)
+    setCitationLoading(true)
+    setCitationError(null)
+    setCitationData(null)
+    try {
+      const data = await getCitationContent({
+        url: citation.url,
+        title: citation.title,
+        source: citation.source,
+      })
+      setCitationData(data)
+    } catch (e) {
+      setCitationError((e as Error).message)
+    } finally {
+      setCitationLoading(false)
     }
   }
 
@@ -218,6 +334,9 @@ export default function App() {
               }}
               onCreate={() => {
                 void onCreateSession()
+              }}
+              onDelete={(id) => {
+                void onDeleteSession(id)
               }}
             />
           ) : (
@@ -313,7 +432,14 @@ export default function App() {
             <ExperiencePanel />
           ) : (
             <>
-              <MessageList messages={messages} loading={loadingMessages || sending} />
+              <MessageList
+                messages={messages}
+                loading={loadingMessages || sending}
+                runTask={chatTask}
+                onOpenCitation={(citation) => {
+                  void onOpenCitation(citation)
+                }}
+              />
               <Composer
                 disabled={sending}
                 placeholder={PLACEHOLDERS[feature]}
@@ -324,6 +450,13 @@ export default function App() {
           )}
         </main>
       </div>
+      <CitationViewer
+        open={citationOpen}
+        loading={citationLoading}
+        error={citationError}
+        data={citationData}
+        onClose={() => setCitationOpen(false)}
+      />
     </div>
   )
 }

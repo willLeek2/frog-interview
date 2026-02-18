@@ -41,6 +41,41 @@ class ChatMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
+class ChatRunTaskStatus(str, Enum):
+    QUEUED = 'queued'
+    RUNNING = 'running'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+
+
+class ChatRunStage(str, Enum):
+    QUEUED = 'queued'
+    LOCAL_RETRIEVAL = 'local_retrieval'
+    WEB_RESEARCH = 'web_research'
+    TOOL_CALL = 'tool_call'
+    LLM_GENERATION = 'llm_generation'
+    SAVING = 'saving'
+    COMPLETED = 'completed'
+    FAILED = 'failed'
+
+
+class ChatRunTask(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: str = Field(index=True)
+    user_message_id: str | None = Field(default=None, index=True)
+    result_message_id: str | None = Field(default=None, index=True)
+    status: ChatRunTaskStatus = Field(default=ChatRunTaskStatus.QUEUED, index=True)
+    stage: ChatRunStage = Field(default=ChatRunStage.QUEUED, index=True)
+    stage_label: str = Field(default='等待处理')
+    events_json: str | None = None
+    metadata_json: str | None = None
+    error_message: str | None = None
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    updated_at: datetime = Field(default_factory=utc_now, index=True)
+    started_at: datetime | None = Field(default=None, index=True)
+    finished_at: datetime | None = Field(default=None, index=True)
+
+
 class TopicStat(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     topic: str = Field(index=True, unique=True)

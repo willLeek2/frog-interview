@@ -1,4 +1,7 @@
 import type {
+  ChatRunTask,
+  ChatRunTaskCreateResponse,
+  CitationContent,
   ExperienceBatch,
   ExperienceBatchDetail,
   ExperienceClusterDetail,
@@ -7,7 +10,6 @@ import type {
   FeatureType,
   IndexRebuildMode,
   IndexRebuildTask,
-  Message,
   Session,
   SessionDetail,
 } from './types'
@@ -44,11 +46,33 @@ export async function getSessionDetail(sessionId: string): Promise<SessionDetail
   return request<SessionDetail>(`/api/v1/chat/sessions/${sessionId}`)
 }
 
-export async function sendMessage(sessionId: string, content: string): Promise<Message> {
-  return request<Message>(`/api/v1/chat/sessions/${sessionId}/messages`, {
+export async function deleteSession(sessionId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/api/v1/chat/sessions/${sessionId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function sendMessage(sessionId: string, content: string): Promise<ChatRunTaskCreateResponse> {
+  return request<ChatRunTaskCreateResponse>(`/api/v1/chat/sessions/${sessionId}/messages`, {
     method: 'POST',
     body: JSON.stringify({ content }),
   })
+}
+
+export async function getChatTask(taskId: string): Promise<ChatRunTask> {
+  return request<ChatRunTask>(`/api/v1/chat/tasks/${taskId}`)
+}
+
+export async function getCitationContent(payload: {
+  url?: string
+  title?: string
+  source?: string
+}): Promise<CitationContent> {
+  const query = new URLSearchParams()
+  if (payload.url) query.set('url', payload.url)
+  if (payload.title) query.set('title', payload.title)
+  if (payload.source) query.set('source', payload.source)
+  return request<CitationContent>(`/api/v1/chat/citations/content?${query.toString()}`)
 }
 
 export async function rebuildIndex(mode: IndexRebuildMode = 'incremental'): Promise<{

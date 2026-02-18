@@ -32,6 +32,59 @@ export interface SessionDetail {
   messages: Message[]
 }
 
+export type ChatRunTaskStatus = 'queued' | 'running' | 'completed' | 'failed'
+export type ChatRunStage =
+  | 'queued'
+  | 'local_retrieval'
+  | 'web_research'
+  | 'tool_call'
+  | 'llm_generation'
+  | 'saving'
+  | 'completed'
+  | 'failed'
+
+export interface ChatRunTaskCreateResponse {
+  task_id: string
+  session_id: string
+  status: ChatRunTaskStatus
+  stage: ChatRunStage
+  stage_label: string
+}
+
+export interface ChatRunEvent {
+  stage: ChatRunStage
+  label: string
+  detail?: string
+  at: string
+}
+
+export interface ChatRunTask {
+  id: string
+  session_id: string
+  user_message_id?: string | null
+  result_message_id?: string | null
+  status: ChatRunTaskStatus
+  stage: ChatRunStage
+  stage_label: string
+  events: ChatRunEvent[]
+  metadata: Record<string, unknown>
+  error_message?: string | null
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface CitationContent {
+  title?: string | null
+  url?: string | null
+  source?: string | null
+  render_mode: 'markdown' | 'raw_text' | 'external'
+  content: string
+  external_url?: string | null
+  truncated: boolean
+}
+
 export type ExperienceBatchStatus = 'pending' | 'running' | 'completed' | 'failed'
 export type ExperienceTaskStatus = 'queued' | 'running' | 'completed' | 'failed'
 
