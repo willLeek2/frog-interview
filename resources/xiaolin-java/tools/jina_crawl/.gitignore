@@ -1,0 +1,6 @@
+.env
+output/
+*.pyc
+__pycache__/
+
+configs/prod/

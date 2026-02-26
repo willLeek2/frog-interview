@@ -1,0 +1,22 @@
+# Jina Reader 爬取配置示例
+# 使用前：复制为实际配置并填写 urls、output_dir
+# API Key：在 .env 中设置 JINA_API_KEY
+
+# 从 .env 加载的环境变量名
+env_file: .env
+api_key_env: JINA_API_KEY
+
+# 待爬取的 URL 列表
+urls:
+  - https://docs.python.org/3/library/functions.html
+  - https://r.jina.ai/docs
+  - https://jina.ai/reader
+
+# 输出目录（Markdown 文件保存位置）
+output_dir: ./output
+
+# 单次请求超时（秒），最大 180
+timeout: 60
+
+# 失败重试次数
+retries: 3

@@ -124,6 +124,20 @@ export interface ExperienceQuestion {
   created_at: string
 }
 
+export interface AlgorithmQuestion {
+  id: string
+  question_text: string
+  normalized_question: string
+  topic_tags: string[]
+  company?: string | null
+  business_line?: string | null
+  interview_round?: string | null
+  confidence: number
+  batch_id: string
+  cluster_id: string
+  created_at: string
+}
+
 export interface ExperienceBatchDetail {
   batch: ExperienceBatch
   images: ExperienceImage[]

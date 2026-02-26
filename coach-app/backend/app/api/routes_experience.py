@@ -7,6 +7,8 @@ from sqlmodel import Session
 
 from app.db.session import get_session
 from app.schemas.experience import (
+    AlgorithmQuestionRead,
+    DeleteQuestionResponse,
     ExperienceBatchDetail,
     ExperienceBatchRead,
     ExperienceClusterDetailRead,
@@ -128,3 +130,25 @@ def get_cluster_detail(cluster_id: str, limit: int = 200, db: Session = Depends(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ExperienceClusterDetailRead(**data)
+
+
+@router.delete('/batches/{batch_id}/questions/{question_id}', response_model=DeleteQuestionResponse)
+def delete_question(batch_id: str, question_id: str, db: Session = Depends(get_session)) -> DeleteQuestionResponse:
+    service = ExperienceMiningService()
+    try:
+        service.delete_question(db=db, batch_id=batch_id, question_id=question_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return DeleteQuestionResponse(status='ok', question_id=question_id)
+
+
+@router.get('/algorithm-questions', response_model=list[AlgorithmQuestionRead])
+def list_algorithm_questions(
+    batch_id: str | None = None,
+    company: str | None = None,
+    limit: int = 50,
+    db: Session = Depends(get_session),
+) -> list[AlgorithmQuestionRead]:
+    service = ExperienceMiningService()
+    rows = service.list_algorithm_questions(db=db, batch_id=batch_id, company=company, limit=limit)
+    return [AlgorithmQuestionRead(**item) for item in rows]

@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   createExperienceBatch,
+  deleteExperienceQuestion,
   getExperienceBatchDetail,
   getExperienceClusterDetail,
   getExperienceTask,
+  listAlgorithmQuestions,
   listExperienceBatchTasks,
   listExperienceBatches,
   listExperienceHotQuestions,
   processExperienceBatch,
 } from '../lib/api'
 import type {
+  AlgorithmQuestion,
   ExperienceBatch,
   ExperienceBatchDetail,
   ExperienceClusterDetail,
@@ -19,12 +22,13 @@ import type {
   ExperienceTaskStatus,
 } from '../lib/types'
 
-type MobileTab = 'upload' | 'batches' | 'hot'
+type MobileTab = 'upload' | 'batches' | 'hot' | 'algorithm'
 
 const MOBILE_TABS: Array<{ key: MobileTab; label: string }> = [
   { key: 'upload', label: '上传' },
   { key: 'batches', label: '批次' },
   { key: 'hot', label: '高频题' },
+  { key: 'algorithm', label: '算法题' },
 ]
 
 function formatDateTime(value?: string | null): string {
@@ -80,8 +84,12 @@ export default function ExperiencePanel() {
   const [clusterDetail, setClusterDetail] = useState<ExperienceClusterDetail | null>(null)
   const [clusterLoading, setClusterLoading] = useState(false)
 
+  const [algorithmQuestions, setAlgorithmQuestions] = useState<AlgorithmQuestion[]>([])
+  const [algorithmLoading, setAlgorithmLoading] = useState(false)
+
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   const selectedBatch = useMemo(
     () => batches.find((item) => item.id === selectedBatchId) ?? null,
@@ -158,10 +166,21 @@ export default function ExperiencePanel() {
     }
   }, [])
 
+  const loadAlgorithmQuestions = useCallback(async () => {
+    setAlgorithmLoading(true)
+    try {
+      const rows = await listAlgorithmQuestions({ limit: 100 })
+      setAlgorithmQuestions(rows)
+    } finally {
+      setAlgorithmLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     void loadBatches()
     void loadHotQuestions()
-  }, [loadBatches, loadHotQuestions])
+    void loadAlgorithmQuestions()
+  }, [loadBatches, loadHotQuestions, loadAlgorithmQuestions])
 
   useEffect(() => {
     if (!selectedBatchId) return
@@ -276,6 +295,42 @@ export default function ExperiencePanel() {
     setMobileTab('hot')
   }
 
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    
+    const droppedFiles = Array.from(e.dataTransfer.files).filter((file) =>
+      file.type.startsWith('image/')
+    )
+    if (droppedFiles.length > 0) {
+      setFiles((prev) => [...prev, ...droppedFiles].slice(0, 20))
+    }
+  }, [])
+
+  const handleDeleteQuestion = useCallback(async (questionId: string) => {
+    if (!selectedBatchId) return
+    if (!confirm('确定要删除这道题目吗？')) return
+    try {
+      await deleteExperienceQuestion(selectedBatchId, questionId)
+      await loadBatchDetail(selectedBatchId)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }, [selectedBatchId, loadBatchDetail])
+
   const uploadPanel = (
     <section className="rounded-2xl border border-primary-100 bg-white p-3 md:p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -283,17 +338,28 @@ export default function ExperiencePanel() {
         <span className="text-xs text-primary-500">单次最多 20 张</span>
       </div>
 
-      <label className="mb-3 flex w-full cursor-pointer flex-col items-center rounded-xl border border-dashed border-primary-300 bg-primary-50/70 px-4 py-5 text-center">
-        <span className="text-sm font-medium text-primary-700">点击或拖拽上传截图</span>
-        <span className="mt-1 text-xs text-primary-500">支持 PNG / JPG / WEBP</span>
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          multiple
-          className="hidden"
-          onChange={(e) => setFiles(Array.from(e.target.files || []))}
-        />
-      </label>
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`mb-3 flex w-full flex-col items-center rounded-xl border border-dashed px-4 py-5 text-center transition-colors ${
+          isDragging
+            ? 'border-primary-500 bg-primary-100'
+            : 'border-primary-300 bg-primary-50/70'
+        }`}
+      >
+        <label className="flex w-full cursor-pointer flex-col items-center">
+          <span className="text-sm font-medium text-primary-700">点击或拖拽上传截图</span>
+          <span className="mt-1 text-xs text-primary-500">支持 PNG / JPG / WEBP</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            className="hidden"
+            onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, 20))}
+          />
+        </label>
+      </div>
 
       <div className="space-y-2">
         <input
@@ -388,6 +454,43 @@ export default function ExperiencePanel() {
     </section>
   )
 
+  const algorithmPanel = (
+    <section className="rounded-2xl border border-primary-100 bg-white p-3 md:p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-primary-900">算法题（手撕/编程）</h3>
+        <button
+          type="button"
+          onClick={() => void loadAlgorithmQuestions()}
+          className="rounded-lg border border-primary-200 px-2 py-1 text-xs text-primary-700 hover:bg-primary-50"
+        >
+          刷新
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {algorithmQuestions.map((item, idx) => (
+          <div
+            key={item.id}
+            className="rounded-xl border border-primary-100 bg-white px-3 py-2"
+          >
+            <p className="text-xs text-primary-500">#{idx + 1}</p>
+            <p className="mt-1 text-sm font-medium text-primary-900">{item.question_text}</p>
+            <p className="mt-1 text-xs text-primary-600">
+              {item.company || '未标注公司'} · {item.business_line || '未标注业务线'}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {algorithmLoading && <p className="mt-3 text-xs text-primary-600">算法题加载中...</p>}
+      {!algorithmLoading && algorithmQuestions.length === 0 && (
+        <p className="mt-3 rounded-xl border border-dashed border-primary-200 bg-primary-50/60 p-3 text-xs text-primary-700">
+          暂无算法题，处理面经批次后会自动识别包含"手撕"、"算法题"等字样的题目。
+        </p>
+      )}
+    </section>
+  )
+
   const hotPanel = (
     <section className="rounded-2xl border border-primary-100 bg-white p-3 md:p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -460,7 +563,7 @@ export default function ExperiencePanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="grid grid-cols-3 gap-2 border-b border-primary-100 bg-white p-2 md:hidden">
+      <div className="grid grid-cols-4 gap-2 border-b border-primary-100 bg-white p-2 md:hidden">
         {MOBILE_TABS.map((tab) => (
           <button
             key={tab.key}
@@ -520,8 +623,19 @@ export default function ExperiencePanel() {
                 {batchDetail?.questions && batchDetail.questions.length > 0 ? (
                   <div className="space-y-2">
                     {batchDetail.questions.slice(0, 8).map((question) => (
-                      <div key={question.id} className="rounded-xl border border-primary-100 px-2 py-1.5 text-xs">
-                        <p className="text-primary-900">{question.question_text}</p>
+                      <div key={question.id} className="group relative rounded-xl border border-primary-100 px-2 py-1.5 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteQuestion(question.id)}
+                          className="absolute right-1 top-1 rounded px-1 text-primary-400 hover:bg-rose-50 hover:text-rose-600"
+                          title="删除题目"
+                        >
+                          ×
+                        </button>
+                        <p className="pr-4 text-primary-900">{question.question_text}</p>
+                        {question.extra?.is_algorithm === true && (
+                          <span className="mt-1 inline-block rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-700">算法题</span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -559,12 +673,14 @@ export default function ExperiencePanel() {
               </section>
             </>
           )}
+          {mobileTab === 'algorithm' && algorithmPanel}
         </div>
 
         <div className="hidden gap-4 md:grid md:grid-cols-[360px_minmax(0,1fr)]">
           <div className="space-y-4">
             {uploadPanel}
             {batchesPanel}
+            {algorithmPanel}
           </div>
 
           <div className="space-y-4">
@@ -608,10 +724,21 @@ export default function ExperiencePanel() {
 
               <div className="space-y-2">
                 {batchDetail?.questions?.slice(0, 12).map((question) => (
-                  <div key={question.id} className="rounded-xl border border-primary-100 p-2">
+                  <div key={question.id} className="group relative rounded-xl border border-primary-100 p-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteQuestion(question.id)}
+                      className="absolute right-1 top-1 rounded p-1 text-primary-400 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
+                      title="删除题目"
+                    >
+                      ×
+                    </button>
                     <p className="text-sm text-primary-900">{question.question_text}</p>
                     <p className="mt-1 text-xs text-primary-600">
                       tags: {question.topic_tags.join(' / ') || '-'} · 置信度 {question.confidence.toFixed(2)}
+                      {question.extra?.is_algorithm === true && (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">算法题</span>
+                      )}
                     </p>
                   </div>
                 ))}

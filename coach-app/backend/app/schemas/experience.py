@@ -105,3 +105,22 @@ class ExperienceClusterDetailRead(BaseModel):
     last_seen_at: datetime
     variants: list[ExperienceClusterVariantRead] = Field(default_factory=list)
     source_batches: list[ExperienceClusterSourceBatchRead] = Field(default_factory=list)
+
+
+class DeleteQuestionResponse(BaseModel):
+    status: str
+    question_id: str
+
+
+class AlgorithmQuestionRead(BaseModel):
+    id: str
+    question_text: str
+    normalized_question: str
+    topic_tags: list[str] = Field(default_factory=list)
+    company: str | None = None
+    business_line: str | None = None
+    interview_round: str | None = None
+    confidence: float = 0
+    batch_id: str
+    cluster_id: str
+    created_at: datetime

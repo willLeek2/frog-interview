@@ -1,4 +1,5 @@
 import type {
+  AlgorithmQuestion,
   ChatRunTask,
   ChatRunTaskCreateResponse,
   CitationContent,
@@ -178,4 +179,23 @@ export async function getExperienceClusterDetail(
   limit = 200,
 ): Promise<ExperienceClusterDetail> {
   return request<ExperienceClusterDetail>(`/api/v1/experience/clusters/${clusterId}?limit=${limit}`)
+}
+
+export async function deleteExperienceQuestion(batchId: string, questionId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/api/v1/experience/batches/${batchId}/questions/${questionId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function listAlgorithmQuestions(params?: {
+  batchId?: string
+  company?: string
+  limit?: number
+}): Promise<AlgorithmQuestion[]> {
+  const query = new URLSearchParams()
+  if (params?.batchId) query.set('batch_id', params.batchId)
+  if (params?.company) query.set('company', params.company)
+  if (params?.limit) query.set('limit', String(params.limit))
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return request<AlgorithmQuestion[]>(`/api/v1/experience/algorithm-questions${suffix}`)
 }

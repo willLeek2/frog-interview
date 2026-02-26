@@ -355,11 +355,22 @@ class ExperienceMiningService:
                     raw_question = (item.get('question') or '').strip()
                     if not raw_question:
                         continue
+
+                    # Skip personal questions that are not generally applicable
+                    if item.get('is_personal') is True:
+                        continue
+
                     normalized = self._normalize_question(raw_question)
                     if not normalized:
                         continue
 
                     topic_tags = self._sanitize_tags(item.get('topic_tags'))
+                    is_algorithm = item.get('is_algorithm') is True
+
+                    # Add algorithm tag if detected
+                    if is_algorithm and '算法' not in topic_tags:
+                        topic_tags.append('算法')
+
                     cluster_id, created = self._resolve_cluster(
                         db=db,
                         normalized_question=normalized,
@@ -384,6 +395,7 @@ class ExperienceMiningService:
                             {
                                 'source_image': image.original_name,
                                 'ocr_raw': item.get('ocr_raw', ''),
+                                'is_algorithm': is_algorithm,
                             }
                         ),
                     )
@@ -408,6 +420,67 @@ class ExperienceMiningService:
             'questions_extracted': extracted_count,
             'clusters_created': created_clusters,
         }
+
+    def delete_question(self, db: Session, batch_id: str, question_id: str) -> None:
+        question = db.get(ExperienceQuestion, question_id)
+        if not question:
+            raise ValueError('题目不存在')
+        if question.batch_id != batch_id:
+            raise ValueError('题目不属于该批次')
+        db.delete(question)
+        db.commit()
+
+        # 更新题簇计数
+        cluster = db.get(ExperienceQuestionCluster, question.cluster_id)
+        if cluster:
+            cluster.total_count = max(0, cluster.total_count - 1)
+            cluster.updated_at = utc_now()
+            db.add(cluster)
+            db.commit()
+
+    def list_algorithm_questions(
+        self,
+        db: Session,
+        batch_id: str | None = None,
+        company: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        from sqlmodel import select
+        from app.utils.json_utils import from_json
+
+        stmt = select(ExperienceQuestion).order_by(desc(ExperienceQuestion.created_at))
+        if batch_id:
+            stmt = stmt.where(ExperienceQuestion.batch_id == batch_id)
+        if company:
+            stmt = stmt.where(ExperienceQuestion.company == company)
+        stmt = stmt.limit(limit)
+
+        rows = db.exec(stmt).all()
+        result: list[dict[str, Any]] = []
+
+        for row in rows:
+            extra = from_json(row.extra_json, {})
+            # Check if this is an algorithm question
+            is_algorithm = extra.get('is_algorithm') is True
+            tags = from_json(row.topic_tags_json, [])
+            if not is_algorithm and '算法' not in tags:
+                continue
+
+            result.append({
+                'id': row.id,
+                'question_text': row.question_text,
+                'normalized_question': row.normalized_question,
+                'topic_tags': tags,
+                'company': row.company,
+                'business_line': row.business_line,
+                'interview_round': row.interview_round,
+                'confidence': row.confidence,
+                'batch_id': row.batch_id,
+                'cluster_id': row.cluster_id,
+                'created_at': row.created_at,
+            })
+
+        return result
 
     def hot_questions(
         self,
@@ -468,7 +541,12 @@ class ExperienceMiningService:
         instruction = (
             'You are extracting interview questions from screenshot images.\n'
             'Return only JSON and focus on user-visible interview questions.\n'
-            'Keep question wording close to the original text.\n'
+            'Keep question wording close to the original text.\n\n'
+            'IMPORTANT FILTERING RULES:\n'
+            '1. Skip questions that are highly personal to the interviewee (e.g., about their own past internships, '
+            'personal projects, or unique experiences that are not generally applicable to other candidates).\n'
+            '2. Keep only questions that have general applicability to other interview candidates.\n'
+            '3. Mark algorithm/coding questions containing "手撕", "算法题", "coding", "算法", "编程题" as is_algorithm=true.\n\n'
             f'Metadata hint: {json.dumps(metadata_hint, ensure_ascii=False)}'
         )
         response_schema = {
@@ -491,8 +569,10 @@ class ExperienceMiningService:
                                     'interview_round': {'type': 'string'},
                                     'confidence': {'type': 'number'},
                                     'ocr_raw': {'type': 'string'},
+                                    'is_personal': {'type': 'boolean'},
+                                    'is_algorithm': {'type': 'boolean'},
                                 },
-                                'required': ['question', 'topic_tags', 'interview_round', 'confidence', 'ocr_raw'],
+                                'required': ['question', 'topic_tags', 'interview_round', 'confidence', 'ocr_raw', 'is_personal', 'is_algorithm'],
                             },
                         }
                     },
