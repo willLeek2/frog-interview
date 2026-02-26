@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import CitationViewer from './components/CitationViewer'
 import Composer from './components/Composer'
-import ExperiencePanel from './components/ExperiencePanel'
 import FeatureMenu from './components/FeatureMenu'
 import MessageList from './components/MessageList'
 import SessionList from './components/SessionList'
@@ -35,14 +35,13 @@ const TITLES: Record<FeatureType, string> = {
   experience: '面经挖掘',
 }
 
-const PLACEHOLDERS: Record<FeatureType, string> = {
+const PLACEHOLDERS: Record<Exclude<FeatureType, 'experience'>, string> = {
   random: '例如：开始随机抽题（偏 MySQL / Redis / JUC）',
   explain: '例如：解释：MySQL MVCC 的实现原理',
   quiz: '例如：出题：JUC 并发，难度中等',
-  experience: '面经挖掘模式不使用此输入框',
 }
 
-const QUICK_ACTIONS: Record<FeatureType, Array<{ label: string; prompt: string }>> = {
+const QUICK_ACTIONS: Record<Exclude<FeatureType, 'experience'>, Array<{ label: string; prompt: string }>> = {
   random: [
     { label: '开始随机抽题', prompt: '开始随机抽题，优先高频考点。' },
     { label: '抽 JVM 题', prompt: '开始随机抽题，主题偏 JVM。' },
@@ -55,10 +54,10 @@ const QUICK_ACTIONS: Record<FeatureType, Array<{ label: string; prompt: string }
     { label: '出 JUC 题', prompt: '出题：JUC 并发，3 题，包含追问。' },
     { label: '出缓存题', prompt: '出题：Redis 缓存一致性，2 题，偏实战。' },
   ],
-  experience: [],
 }
 
 export default function App() {
+  const navigate = useNavigate()
   const [feature, setFeature] = useState<FeatureType>('explain')
   const [sessions, setSessions] = useState<Session[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -82,6 +81,14 @@ export default function App() {
   )
   const isExperience = feature === 'experience'
   const isChatFeature = !isExperience
+
+  const handleFeatureChange = (value: FeatureType) => {
+    if (value === 'experience') {
+      navigate('/experience')
+      return
+    }
+    setFeature(value)
+  }
 
   const stopChatTaskPolling = () => {
     if (chatTaskPollerRef.current) {
@@ -319,7 +326,7 @@ export default function App() {
           <FeatureMenu
             current={feature}
             onChange={(value) => {
-              setFeature(value)
+              handleFeatureChange(value)
               setSidebarOpen(false)
             }}
           />
@@ -428,26 +435,22 @@ export default function App() {
 
           {error && <div className="px-4 py-2 text-xs text-red-600">{error}</div>}
 
-          {isExperience ? (
-            <ExperiencePanel />
-          ) : (
-            <>
-              <MessageList
-                messages={messages}
-                loading={loadingMessages || sending}
-                runTask={chatTask}
-                onOpenCitation={(citation) => {
-                  void onOpenCitation(citation)
-                }}
-              />
-              <Composer
-                disabled={sending}
-                placeholder={PLACEHOLDERS[feature]}
-                quickActions={QUICK_ACTIONS[feature]}
-                onSend={onSend}
-              />
-            </>
-          )}
+          <>
+            <MessageList
+              messages={messages}
+              loading={loadingMessages || sending}
+              runTask={chatTask}
+              onOpenCitation={(citation) => {
+                void onOpenCitation(citation)
+              }}
+            />
+            <Composer
+              disabled={sending}
+              placeholder={PLACEHOLDERS[feature as Exclude<FeatureType, 'experience'>]}
+              quickActions={QUICK_ACTIONS[feature as Exclude<FeatureType, 'experience'>]}
+              onSend={onSend}
+            />
+          </>
         </main>
       </div>
       <CitationViewer

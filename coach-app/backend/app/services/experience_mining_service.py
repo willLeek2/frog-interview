@@ -434,7 +434,7 @@ class ExperienceMiningService:
         cluster = db.get(ExperienceQuestionCluster, question.cluster_id)
         if cluster:
             cluster.total_count = max(0, cluster.total_count - 1)
-            cluster.updated_at = utc_now()
+            cluster.last_seen_at = utc_now()
             db.add(cluster)
             db.commit()
 
