@@ -12,6 +12,10 @@ interface OutletContext {
   onProcessBatch: (batchId: string) => Promise<void>
 }
 
+function isTaskActive(status: string): boolean {
+  return status === 'queued' || status === 'running'
+}
+
 function statusClass(status: string): string {
   if (status === 'completed') return 'bg-emerald-100 text-emerald-700'
   if (status === 'failed') return 'bg-rose-100 text-rose-700'
@@ -44,8 +48,9 @@ export default function ExperienceBatchPage() {
   const [loading, setLoading] = useState(false)
   const [tasks, setTasks] = useState<ExperienceProcessTask[]>([])
   const [tasksLoading, setTasksLoading] = useState(false)
-  const [, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [processing, setProcessing] = useState(false)
 
   const loadDetail = useCallback(async (id: string) => {
     setLoading(true)
@@ -75,6 +80,18 @@ export default function ExperienceBatchPage() {
     void loadTasks(batchId)
   }, [batchId, loadDetail, loadTasks])
 
+  useEffect(() => {
+    if (!batchId) return
+    if (!tasks.some((task) => isTaskActive(task.status))) return
+
+    const timer = window.setInterval(() => {
+      void loadTasks(batchId)
+      void loadDetail(batchId)
+    }, 2500)
+
+    return () => window.clearInterval(timer)
+  }, [batchId, loadDetail, loadTasks, tasks])
+
   const handleDeleteQuestion = async (questionId: string) => {
     if (!batchId) return
     if (!confirm('确定要删除这道题目吗？')) return
@@ -93,18 +110,21 @@ export default function ExperienceBatchPage() {
 
   const handleProcess = async () => {
     if (!batchId) return
+    if (tasks.some((task) => isTaskActive(task.status)) || processing) return
     setError(null)
+    setProcessing(true)
     try {
       await onProcessBatch(batchId)
-      // Refresh after process triggered
-      setTimeout(() => {
-        void loadDetail(batchId)
-        void loadTasks(batchId)
-      }, 500)
+      await loadTasks(batchId)
+      await loadDetail(batchId)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setProcessing(false)
     }
   }
+
+  const activeTask = tasks.find((task) => isTaskActive(task.status)) ?? null
 
   if (!batchId) {
     return (
@@ -123,14 +143,15 @@ export default function ExperienceBatchPage() {
           <button
             type="button"
             onClick={handleProcess}
-            disabled={loading}
+            disabled={loading || processing || !!activeTask}
             className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
           >
-            处理当前批次
+            {activeTask ? '处理中...' : processing ? '提交中...' : '处理当前批次'}
           </button>
         </div>
 
         {loading && <p className="text-sm text-primary-600">加载中...</p>}
+        {error && <p className="mb-3 text-xs text-rose-600">{error}</p>}
 
         {detail?.batch && (
           <div className="mb-3 grid grid-cols-2 gap-2 rounded-xl bg-primary-50 p-3 text-xs text-primary-700 md:grid-cols-4">
@@ -138,6 +159,12 @@ export default function ExperienceBatchPage() {
             <p>图片：{detail.batch.image_count}</p>
             <p>题目：{detail.batch.question_count}</p>
             <p>创建：{formatDateTime(detail.batch.created_at)}</p>
+          </div>
+        )}
+
+        {activeTask && (
+          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            当前任务正在处理中，页面会自动刷新任务状态和题目列表。
           </div>
         )}
 
