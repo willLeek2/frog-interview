@@ -1,23 +1,6 @@
 version: '3.9'
 
 services:
-  qdrant:
-    image: qdrant/qdrant:v1.15.3
-    container_name: coach-qdrant
-    restart: unless-stopped
-    ports:
-      - '${QDRANT_PORT:-6333}:6333'
-    volumes:
-      - ./qdrant_storage:/qdrant/storage
-    # 内存限制：非 Swarm 模式下需用 docker compose --compatibility up 才能生效
-    deploy:
-      resources:
-        limits:
-          memory: ${QDRANT_MEMORY_LIMIT:-1G}
-    # 低资源模式：payload 落盘，减少内存占用（适合面试资料等小规模场景）
-    environment:
-      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
-
   backend:
     build:
       context: ./backend
@@ -26,14 +9,15 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
-    depends_on:
-      - qdrant
     volumes:
       - ./backend/data:/app/data
       - ./backend/config:/app/config:ro
       - ../resources:/app/resources:ro
     ports:
       - '${BACKEND_PORT:-8000}:8000'
+    networks:
+      - default
+      - shared-infra
 
   frontend:
     build:
@@ -46,3 +30,7 @@ services:
     ports:
       - '${FRONTEND_PORT:-3000}:80'
 
+networks:
+  shared-infra:
+    external: true
+    name: ${SHARED_INFRA_NETWORK:-shared-infra}

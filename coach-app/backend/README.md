@@ -12,6 +12,7 @@
 ### 向量数据库
 - 当前使用：`Qdrant`
 - 用途：知识库检索向量、面经问题聚类向量
+- 当前接入方式：连接共享基础设施网络中的 `shared-qdrant`
 
 ### 现在必须的中间件
 - 必需：`Qdrant`
@@ -25,7 +26,7 @@
 
 - `frontend`：Nginx 静态站点容器
 - `backend`：FastAPI 容器
-- `qdrant`：向量数据库容器
+- `shared-qdrant`：由共享基础设施 compose 管理的 Qdrant 容器
 - `sqlite`：作为文件保存在 `backend/data/coach_app.db`
 
 当前异步处理队列是“后端进程内队列 + worker 线程”，不是独立 MQ。  
@@ -37,7 +38,12 @@
 
 ### Step 0: 准备环境
 1. 安装 Docker + Docker Compose（plugin）。
-2. 服务器放通端口：默认 `3000`（前端）、`8000`（后端，可选内网）、`6333`（Qdrant）；可在 `coach-app/.env` 中通过 `FRONTEND_PORT`、`BACKEND_PORT`、`QDRANT_PORT` 自定义。
+2. 先确认共享基础设施已启动：
+```bash
+cd ~/shared-infra
+docker compose up -d
+```
+3. 服务器放通端口：默认 `3000`（前端）、`8000`（后端，可选内网）。Qdrant 端口由共享基础设施统一管理；`coach-app/.env` 仅需配置 `FRONTEND_PORT`、`BACKEND_PORT`、`SHARED_INFRA_NETWORK`。
 
 ### Step 1: 准备配置文件
 1. 复制配置：
@@ -76,11 +82,11 @@ OPENROUTER_API_KEY=你的key
 PERPLEXITY_API_KEY=你的key
 JINA_API_KEY=你的key
 ```
+6. 默认 `QDRANT_URL=http://shared-qdrant:6333`，前提是后端容器已加入 `shared-infra` 外部网络；如果你修改了共享容器名或网络名，需要同步改 `.env`。
 
 ### Step 2: 启动服务
 ```bash
 docker compose up -d --build
-# 若需 Qdrant 内存限制生效：docker compose --compatibility up -d --build
 ```
 说明：`docker-compose.yml` 已将宿主机 `backend/config` 挂载到容器 `/app/config`，所以容器内读取的是宿主机上的 `llms.local.json`。
 
@@ -125,14 +131,14 @@ curl "http://127.0.0.1:8000/api/v1/experience/clusters/<cluster_id>"
 
 ## 4. Qdrant 配置说明
 
-- **版本**：当前固定 `v1.15.3`，与 qdrant-client 兼容；如需升级可查 [Qdrant 发布页](https://github.com/qdrant/qdrant/releases)
-- **持久化**：`./qdrant_storage` 挂载到容器 `/qdrant/storage`，数据落盘宿主机
-- **内存限制**：`.env` 中 `QDRANT_MEMORY_LIMIT`（默认 1G）；非 Swarm 模式下需 `docker compose --compatibility up` 才能生效
-- **低资源**：已启用 `ON_DISK_PAYLOAD=true`，payload 落盘以减内存
+- **部署归属**：不再由 `coach-app/docker-compose.yml` 自己拉起，统一复用共享基础设施中的 `shared-qdrant`
+- **连接地址**：默认 `http://shared-qdrant:6333`
+- **版本/持久化/内存限制**：以服务器上 `~/shared-infra/docker-compose.yml` 为准
 
 ## 5. 端口配置
 
-- 宿主机端口在 `coach-app/.env` 中配置：`FRONTEND_PORT`、`BACKEND_PORT`、`QDRANT_PORT`
+- 宿主机端口在 `coach-app/.env` 中配置：`FRONTEND_PORT`、`BACKEND_PORT`
+- 外部共享网络名也在 `coach-app/.env` 中配置：`SHARED_INFRA_NETWORK`
 - 复制 `coach-app/.env.example` 为 `coach-app/.env` 后修改
 - 后端监听端口 `APP_PORT` 在 `backend/.env` 中，仅影响本地 `uvicorn`；Docker 容器内固定 8000
 
@@ -141,13 +147,12 @@ curl "http://127.0.0.1:8000/api/v1/experience/clusters/<cluster_id>"
 ### 需要备份的内容
 - `backend/data/coach_app.db`（SQLite）
 - `backend/data/experience_uploads/`（上传原图）
-- `qdrant_storage/`（Qdrant 向量数据）
+- 共享基础设施中的 Qdrant 数据卷（例如 `shared-qdrant-data`）
 
 ### 简单备份示例
 ```bash
 tar -czf coach-backup-$(date +%F).tar.gz \
-  backend/data \
-  qdrant_storage
+  backend/data
 ```
 
 ## 7. 资源建议与限制

@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     resources_dir: str = Field(default_factory=_default_resources_dir, validation_alias='RESOURCES_DIR')
 
     # Qdrant
-    qdrant_url: str = 'http://qdrant:6333'
+    qdrant_url: str = 'http://shared-qdrant:6333'
     qdrant_api_key: str | None = None
     qdrant_collection: str = 'coach_chunks'
 

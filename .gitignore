@@ -8,3 +8,8 @@ pdfs/
 .DS_Store
 
 __pycache__/
+
+.env
+
+agent-guides/
+cloud-agent-issues/
