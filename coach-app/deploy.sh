@@ -11,6 +11,8 @@ LLMS_CONFIG_FILE="$APP_DIR/backend/config/llms.local.json"
 REBUILD_INDEX=0
 SKIP_SHARED_INFRA=0
 SKIP_HEALTHCHECK=0
+SERVICES=()
+VALID_SERVICES=(backend frontend)
 
 log() {
   printf '[deploy] %s\n' "$*"
@@ -28,6 +30,7 @@ fail() {
 usage() {
   cat <<'EOF'
 Usage: ./deploy.sh [options]
+Usage: ./deploy.sh [options] [service...]
 
 Options:
   --reindex              Trigger /api/v1/index/rebuild after health check
@@ -37,6 +40,11 @@ Options:
 
 Environment overrides:
   SHARED_INFRA_DIR       Path to shared infra compose directory
+
+Examples:
+  ./deploy.sh
+  ./deploy.sh backend frontend
+  ./deploy.sh frontend --skip-healthcheck
 EOF
 }
 
@@ -84,6 +92,17 @@ wait_for_health() {
   return 1
 }
 
+is_valid_service() {
+  local candidate="$1"
+  local service
+  for service in "${VALID_SERVICES[@]}"; do
+    if [[ "$service" == "$candidate" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 for arg in "$@"; do
   case "$arg" in
     --reindex)
@@ -100,7 +119,11 @@ for arg in "$@"; do
       exit 0
       ;;
     *)
-      fail "unknown argument: $arg"
+      if is_valid_service "$arg"; then
+        SERVICES+=("$arg")
+      else
+        fail "unknown argument or unsupported service: $arg"
+      fi
       ;;
   esac
 done
@@ -134,10 +157,15 @@ if [[ "$SKIP_SHARED_INFRA" -eq 0 ]]; then
   fi
 fi
 
+if [[ "${#SERVICES[@]}" -eq 0 ]]; then
+  SERVICES=("${VALID_SERVICES[@]}")
+fi
+
 log "deploying coach-app from $APP_DIR"
+log "target services: ${SERVICES[*]}"
 (
   cd "$APP_DIR"
-  docker compose up -d --build
+  docker compose up -d --build "${SERVICES[@]}"
 )
 
 if [[ "$SKIP_HEALTHCHECK" -eq 0 ]]; then
