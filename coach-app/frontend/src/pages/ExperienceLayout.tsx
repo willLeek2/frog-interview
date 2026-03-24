@@ -46,6 +46,10 @@ function isTaskActive(status: string): boolean {
   return status === 'queued' || status === 'running'
 }
 
+function latestTask(tasks: ExperienceProcessTask[]): ExperienceProcessTask | null {
+  return tasks[0] ?? null
+}
+
 function formatDateTime(value?: string | null): string {
   if (!value) return '-'
   try {
@@ -136,9 +140,10 @@ export default function ExperienceLayout() {
       Object.entries(prev).forEach(([taskId, ownerBatchId]) => {
         if (ownerBatchId !== batchId) next[taskId] = ownerBatchId
       })
-      rows.forEach((task) => {
-        if (isTaskActive(task.status)) next[task.id] = batchId
-      })
+      const task = latestTask(rows)
+      if (task && isTaskActive(task.status)) {
+        next[task.id] = batchId
+      }
       return next
     })
   }, [])
@@ -433,7 +438,7 @@ export default function ExperienceLayout() {
         {batches.map((row) => {
           const batchPath = `/experience/batches/${row.id}`
           const isActive = location.pathname === batchPath || location.pathname.startsWith(`${batchPath}/`)
-          const isRunning = (tasksByBatch[row.id] || []).some((task) => isTaskActive(task.status))
+          const isRunning = isTaskActive(latestTask(tasksByBatch[row.id] || [])?.status || '')
           return (
             <NavLink
               key={row.id}

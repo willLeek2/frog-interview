@@ -16,6 +16,10 @@ function isTaskActive(status: string): boolean {
   return status === 'queued' || status === 'running'
 }
 
+function latestTask(tasks: ExperienceProcessTask[]): ExperienceProcessTask | null {
+  return tasks[0] ?? null
+}
+
 function statusClass(status: string): string {
   if (status === 'completed') return 'bg-emerald-100 text-emerald-700'
   if (status === 'failed') return 'bg-rose-100 text-rose-700'
@@ -82,7 +86,8 @@ export default function ExperienceBatchPage() {
 
   useEffect(() => {
     if (!batchId) return
-    if (!tasks.some((task) => isTaskActive(task.status))) return
+    const currentTask = latestTask(tasks)
+    if (!currentTask || !isTaskActive(currentTask.status)) return
 
     const timer = window.setInterval(() => {
       void loadTasks(batchId)
@@ -110,7 +115,8 @@ export default function ExperienceBatchPage() {
 
   const handleProcess = async () => {
     if (!batchId) return
-    if (tasks.some((task) => isTaskActive(task.status)) || processing) return
+    const currentTask = latestTask(tasks)
+    if ((currentTask && isTaskActive(currentTask.status)) || processing) return
     setError(null)
     setProcessing(true)
     try {
@@ -124,7 +130,8 @@ export default function ExperienceBatchPage() {
     }
   }
 
-  const activeTask = tasks.find((task) => isTaskActive(task.status)) ?? null
+  const currentTask = latestTask(tasks)
+  const activeTask = currentTask && isTaskActive(currentTask.status) ? currentTask : null
 
   if (!batchId) {
     return (
