@@ -20,6 +20,12 @@ const MOBILE_TABS: Array<{ key: MobileTab; label: string }> = [
   { key: 'batches', label: '批次' },
 ]
 
+interface PendingUploadFile {
+  id: string
+  file: File
+  previewUrl: string
+}
+
 function statusClass(status: string): string {
   if (status === 'completed') return 'bg-emerald-100 text-emerald-700'
   if (status === 'failed') return 'bg-rose-100 text-rose-700'
@@ -67,6 +73,50 @@ export default function ExperienceLayout() {
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [previewingFileId, setPreviewingFileId] = useState<string | null>(null)
+
+  const pendingFiles = useMemo<PendingUploadFile[]>(
+    () =>
+      files.map((file) => ({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      })),
+    [files],
+  )
+
+  const previewingFile = useMemo(
+    () => pendingFiles.find((item) => item.id === previewingFileId) ?? null,
+    [pendingFiles, previewingFileId],
+  )
+
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach((item) => URL.revokeObjectURL(item.previewUrl))
+    }
+  }, [pendingFiles])
+
+  const appendFiles = useCallback((nextFiles: File[]) => {
+    if (nextFiles.length === 0) return
+    setFiles((prev) => {
+      const merged = [...prev]
+      const seen = new Set(prev.map((file) => `${file.name}-${file.size}-${file.lastModified}`))
+      nextFiles.forEach((file) => {
+        const key = `${file.name}-${file.size}-${file.lastModified}`
+        if (seen.has(key)) return
+        merged.push(file)
+        seen.add(key)
+      })
+      return merged.slice(0, 20)
+    })
+  }, [])
+
+  const removeFile = useCallback((fileId: string) => {
+    setFiles((prev) =>
+      prev.filter((file) => `${file.name}-${file.size}-${file.lastModified}` !== fileId),
+    )
+    setPreviewingFileId((prev) => (prev === fileId ? null : prev))
+  }, [])
 
   const loadBatches = useCallback(async () => {
     setBatchesLoading(true)
@@ -175,6 +225,7 @@ export default function ExperienceLayout() {
       setBusinessLine('')
       setInterviewAt('')
       setNotes('')
+      setPreviewingFileId(null)
       await loadBatches()
       navigate(`/experience/batches/${row.id}`)
     } catch (e) {
@@ -215,10 +266,8 @@ export default function ExperienceLayout() {
     const droppedFiles = Array.from(e.dataTransfer.files).filter((file) =>
       file.type.startsWith('image/'),
     )
-    if (droppedFiles.length > 0) {
-      setFiles((prev) => [...prev, ...droppedFiles].slice(0, 20))
-    }
-  }, [])
+    appendFiles(droppedFiles)
+  }, [appendFiles])
 
   const isBatchActive = useMemo(() => {
     return location.pathname.includes('/experience/batches/')
@@ -253,10 +302,51 @@ export default function ExperienceLayout() {
             accept="image/png,image/jpeg,image/webp"
             multiple
             className="hidden"
-            onChange={(e) => setFiles(Array.from(e.target.files || []).slice(0, 20))}
+            onChange={(e) => {
+              appendFiles(Array.from(e.target.files || []))
+              e.currentTarget.value = ''
+            }}
           />
         </label>
       </div>
+
+      {pendingFiles.length > 0 && (
+        <div className="mb-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-primary-700">待上传图片</p>
+            <p className="text-[11px] text-primary-500">点击卡片预览，右上角可删除</p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {pendingFiles.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setPreviewingFileId(item.id)}
+                className="group relative flex items-center gap-3 rounded-2xl border border-primary-200 bg-primary-50/70 p-2 text-left transition hover:border-primary-400 hover:bg-white"
+              >
+                <img
+                  src={item.previewUrl}
+                  alt={item.file.name}
+                  className="h-12 w-12 shrink-0 rounded-xl border border-primary-100 object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-primary-900">{item.file.name}</p>
+                  <p className="text-xs text-primary-600">{Math.max(1, Math.round(item.file.size / 1024))} KB</p>
+                </div>
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeFile(item.id)
+                  }}
+                  className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-xs text-primary-500 shadow-sm transition hover:bg-rose-50 hover:text-rose-600"
+                >
+                  ×
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <input
@@ -443,6 +533,50 @@ export default function ExperienceLayout() {
           </div>
         </main>
       </div>
+
+      {previewingFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-primary-950/55 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewingFileId(null)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-3xl border border-primary-100 bg-white p-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-primary-900">{previewingFile.file.name}</p>
+                <p className="text-xs text-primary-600">
+                  {Math.max(1, Math.round(previewingFile.file.size / 1024))} KB
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => removeFile(previewingFile.id)}
+                  className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                >
+                  移除
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewingFileId(null)}
+                  className="rounded-xl border border-primary-200 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-50"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-primary-100 bg-primary-50/60">
+              <img
+                src={previewingFile.previewUrl}
+                alt={previewingFile.file.name}
+                className="max-h-[70vh] w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
