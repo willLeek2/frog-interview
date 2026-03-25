@@ -6,17 +6,20 @@ import json
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from queue import Queue
 from threading import Lock, Thread
 from typing import Any
 from uuid import uuid4
 
+from PIL import Image
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, PointStruct, VectorParams
-from sqlmodel import Session, desc, delete, select
+from sqlmodel import Session, desc, select
 
 from app.core.config import settings
+from app.core.llm_runtime_config import runtime_llm_config
 from app.db.session import get_session_ctx
 from app.models.experience import (
     ExperienceBatch,
@@ -343,64 +346,67 @@ class ExperienceMiningService:
         db.add(batch)
         db.commit()
 
-        extracted_count = 0
+        raw_extracted_count = 0
+        unique_extracted_count = 0
         created_clusters = 0
+        ocr_model = self._experience_model('experience_ocr_model', settings.experience_ocr_model)
+        extract_model = self._experience_model('experience_extract_model', settings.experience_extract_model)
         try:
-            db.exec(delete(ExperienceQuestion).where(ExperienceQuestion.batch_id == batch_id))
-            db.commit()
-
+            self._delete_batch_questions(db, batch_id)
+            all_candidates: list[dict[str, Any]] = []
             for image in images:
-                extracted = self._extract_questions_from_image(image=image, batch=batch)
-                for item in extracted:
-                    raw_question = (item.get('question') or '').strip()
-                    if not raw_question:
-                        continue
+                ocr_lines = self._ocr_lines_from_image(image=image)
+                self._write_artifact(batch.id, image.id, 'ocr_lines.json', {'lines': ocr_lines})
+                extracted = self._extract_questions_from_ocr_lines(lines=ocr_lines, image=image, batch=batch)
+                self._write_artifact(batch.id, image.id, 'extracted_questions.json', {'questions': extracted})
+                all_candidates.extend(extracted)
 
-                    # Skip personal questions that are not generally applicable
-                    if item.get('is_personal') is True:
-                        continue
+            raw_extracted_count = len(all_candidates)
+            unique_candidates = self._dedupe_questions(all_candidates)
+            unique_extracted_count = len(unique_candidates)
+            self._write_artifact(
+                batch.id,
+                None,
+                'deduped_questions.json',
+                {'questions': unique_candidates},
+            )
 
-                    normalized = self._normalize_question(raw_question)
-                    if not normalized:
-                        continue
+            vectors = self._embed_questions([item['normalized_question'] for item in unique_candidates])
 
-                    topic_tags = self._sanitize_tags(item.get('topic_tags'))
-                    is_algorithm = item.get('is_algorithm') is True
+            for item, vector in zip(unique_candidates, vectors, strict=False):
+                cluster_id, created = self._resolve_cluster(
+                    db=db,
+                    normalized_question=item['normalized_question'],
+                    topic_tags=item['topic_tags'],
+                    company=batch.company,
+                    vector=vector,
+                )
+                if created:
+                    created_clusters += 1
 
-                    # Add algorithm tag if detected
-                    if is_algorithm and '算法' not in topic_tags:
-                        topic_tags.append('算法')
-
-                    cluster_id, created = self._resolve_cluster(
-                        db=db,
-                        normalized_question=normalized,
-                        topic_tags=topic_tags,
-                        company=batch.company,
-                    )
-                    if created:
-                        created_clusters += 1
-
-                    row = ExperienceQuestion(
-                        batch_id=batch.id,
-                        cluster_id=cluster_id,
-                        image_id=image.id,
-                        question_text=raw_question,
-                        normalized_question=normalized,
-                        topic_tags_json=to_json(topic_tags),
-                        company=batch.company,
-                        business_line=batch.business_line,
-                        interview_round=(item.get('interview_round') or '').strip() or None,
-                        confidence=self._safe_confidence(item.get('confidence')),
-                        extra_json=to_json(
-                            {
-                                'source_image': image.original_name,
-                                'ocr_raw': item.get('ocr_raw', ''),
-                                'is_algorithm': is_algorithm,
-                            }
-                        ),
-                    )
-                    db.add(row)
-                    extracted_count += 1
+                row = ExperienceQuestion(
+                    batch_id=batch.id,
+                    cluster_id=cluster_id,
+                    image_id=item.get('image_id'),
+                    question_text=item['question_text'],
+                    normalized_question=item['normalized_question'],
+                    topic_tags_json=to_json(item['topic_tags']),
+                    company=batch.company,
+                    business_line=batch.business_line,
+                    interview_round=item.get('interview_round'),
+                    confidence=self._safe_confidence(item.get('confidence')),
+                    extra_json=to_json(
+                        {
+                            'source_image': item.get('source_image', ''),
+                            'source_images': item.get('source_images', []),
+                            'source_excerpt': item.get('source_excerpt', ''),
+                            'ocr_raw': item.get('ocr_raw', ''),
+                            'is_algorithm': item.get('is_algorithm') is True,
+                            'duplicate_count': item.get('duplicate_count', 1),
+                        }
+                    ),
+                )
+                db.add(row)
 
             batch.status = ExperienceBatchStatus.COMPLETED
             batch.updated_at = utc_now()
@@ -417,7 +423,11 @@ class ExperienceMiningService:
         return {
             'batch_id': batch.id,
             'status': batch.status,
-            'questions_extracted': extracted_count,
+            'images_processed': len(images),
+            'ocr_model': ocr_model,
+            'extract_model': extract_model,
+            'questions_extracted_raw': raw_extracted_count,
+            'questions_extracted_unique': unique_extracted_count,
             'clusters_created': created_clusters,
         }
 
@@ -430,13 +440,7 @@ class ExperienceMiningService:
         db.delete(question)
         db.commit()
 
-        # 更新题簇计数
-        cluster = db.get(ExperienceQuestionCluster, question.cluster_id)
-        if cluster:
-            cluster.total_count = max(0, cluster.total_count - 1)
-            cluster.last_seen_at = utc_now()
-            db.add(cluster)
-            db.commit()
+        self._refresh_clusters(db, {question.cluster_id})
 
     def list_algorithm_questions(
         self,
@@ -524,89 +528,75 @@ class ExperienceMiningService:
         result.sort(key=lambda x: x['total_count'], reverse=True)
         return result[:limit]
 
-    def _extract_questions_from_image(
-        self,
-        image: ExperienceImage,
-        batch: ExperienceBatch,
-    ) -> list[dict[str, Any]]:
-        image_bytes = Path(image.file_path).read_bytes()
-        mime = image.content_type or self._mime_from_suffix(Path(image.file_path).suffix)
-        data_uri = f'data:{mime};base64,{base64.b64encode(image_bytes).decode("utf-8")}'
-
-        metadata_hint = {
-            'company': batch.company or '',
-            'business_line': batch.business_line or '',
-            'notes': batch.notes or '',
-        }
-        instruction = (
-            'You are extracting interview questions from screenshot images.\n'
-            'Return only JSON and focus on user-visible interview questions.\n'
-            'Keep question wording close to the original text.\n\n'
-            'IMPORTANT FILTERING RULES:\n'
-            '1. Skip questions that are highly personal to the interviewee (e.g., about their own past internships, '
-            'personal projects, or unique experiences that are not generally applicable to other candidates).\n'
-            '2. Keep only questions that have general applicability to other interview candidates.\n'
-            '3. Mark algorithm/coding questions containing "手撕", "算法题", "coding", "算法", "编程题" as is_algorithm=true.\n\n'
-            f'Metadata hint: {json.dumps(metadata_hint, ensure_ascii=False)}'
-        )
-        response_schema = {
-            'type': 'json_schema',
-            'json_schema': {
-                'name': 'experience_extract',
-                'strict': True,
-                'schema': {
-                    'type': 'object',
-                    'additionalProperties': False,
-                    'properties': {
-                        'questions': {
-                            'type': 'array',
-                            'items': {
-                                'type': 'object',
-                                'additionalProperties': False,
-                                'properties': {
-                                    'question': {'type': 'string'},
-                                    'topic_tags': {'type': 'array', 'items': {'type': 'string'}},
-                                    'interview_round': {'type': 'string'},
-                                    'confidence': {'type': 'number'},
-                                    'ocr_raw': {'type': 'string'},
-                                    'is_personal': {'type': 'boolean'},
-                                    'is_algorithm': {'type': 'boolean'},
-                                },
-                                'required': ['question', 'topic_tags', 'interview_round', 'confidence', 'ocr_raw', 'is_personal', 'is_algorithm'],
-                            },
-                        }
-                    },
-                    'required': ['questions'],
-                },
-            },
-        }
-
-        try:
-            data = self.openrouter.chat_completion(
-                model=self.openrouter.model_for('vision'),
+    def _ocr_lines_from_image(self, image: ExperienceImage) -> list[dict[str, Any]]:
+        image_path = Path(image.file_path)
+        slices = self._slice_image(image_path)
+        merged_lines: list[dict[str, Any]] = []
+        for slice_index, slice_image in enumerate(slices):
+            data_uri = self._image_to_data_uri(slice_image, image_path)
+            response = self.openrouter.chat_completion(
+                model=self._experience_model('experience_ocr_model', settings.experience_ocr_model),
                 messages=[
                     {
                         'role': 'user',
                         'content': [
-                            {'type': 'text', 'text': instruction},
+                            {
+                                'type': 'text',
+                                'text': (
+                                    'Transcribe the main visible post content from this interview screenshot.\n'
+                                    'Return JSON only.\n'
+                                    'Preserve reading order.\n'
+                                    'Exclude obvious app chrome like status bar icons, back buttons, share buttons, '
+                                    'bottom navigation, comment input, and engagement counters when possible.\n'
+                                    'Do not interpret or summarize; only transcribe visible lines.'
+                                ),
+                            },
                             {'type': 'image_url', 'image_url': {'url': data_uri}},
                         ],
                     }
                 ],
                 provider=self.openrouter.provider_preferences('vision'),
-                extra_body={'response_format': response_schema},
+                extra_body={'response_format': self._ocr_response_schema()},
+                purpose='vision',
             )
-            content = self._extract_content_text(data)
-            parsed = self._parse_json_content(content)
-            questions = parsed.get('questions', [])
-            if isinstance(questions, list):
-                return [x for x in questions if isinstance(x, dict)]
-        except Exception:  # noqa: BLE001
-            pass
+            parsed = self._parse_json_content(self._extract_content_text(response))
+            raw_lines = parsed.get('lines', [])
+            if not isinstance(raw_lines, list):
+                continue
+            line_index = 0
+            for item in raw_lines:
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get('text', '')).strip()
+                if not text:
+                    continue
+                merged_lines.append(
+                    {
+                        'text': text,
+                        'slice_index': slice_index,
+                        'line_index': line_index,
+                    }
+                )
+                line_index += 1
+        return self._merge_adjacent_duplicate_lines(merged_lines)
 
-        # 兼容：结构化输出不可用时，退化为文本 JSON 指令
-        fallback = self.openrouter.chat_completion(
-            model=self.openrouter.model_for('vision'),
+    def _extract_questions_from_ocr_lines(
+        self,
+        lines: list[dict[str, Any]],
+        image: ExperienceImage,
+        batch: ExperienceBatch,
+    ) -> list[dict[str, Any]]:
+        if not lines:
+            return []
+        transcript = '\n'.join(item['text'] for item in lines)
+        metadata_hint = {
+            'company': batch.company or '',
+            'business_line': batch.business_line or '',
+            'notes': batch.notes or '',
+            'source_image': image.original_name,
+        }
+        response = self.openrouter.chat_completion(
+            model=self._experience_model('experience_extract_model', settings.experience_extract_model),
             messages=[
                 {
                     'role': 'user',
@@ -614,23 +604,57 @@ class ExperienceMiningService:
                         {
                             'type': 'text',
                             'text': (
-                                instruction
-                                + '\nReturn strict JSON object with key "questions".'
-                                ' No markdown wrapper.'
+                                'You are extracting interview questions from OCR text copied from a social-media interview post.\n'
+                                'Return only final interview questions as JSON.\n'
+                                'You must deduce split/merge internally and output the final cleaned questions only.\n'
+                                'Skip obvious noise such as hashtags, interaction prompts, posting metadata, durations, and engagement text.\n'
+                                'Keep only generally applicable interview questions.\n'
+                                'For design questions, keep enough context so the question remains complete.\n'
+                                'For algorithm questions, mark is_algorithm=true.\n'
+                                f'Metadata hint: {json.dumps(metadata_hint, ensure_ascii=False)}\n\n'
+                                f'OCR transcript:\n{transcript}'
                             ),
-                        },
-                        {'type': 'image_url', 'image_url': {'url': data_uri}},
+                        }
                     ],
                 }
             ],
-            provider=self.openrouter.provider_preferences('vision'),
+            provider=self.openrouter.provider_preferences('chat'),
+            extra_body={'response_format': self._question_extract_schema()},
+            purpose='chat',
         )
-        text = self._extract_content_text(fallback)
-        parsed = self._parse_json_content(text)
-        items = parsed.get('questions', [])
-        if not isinstance(items, list):
+        parsed = self._parse_json_content(self._extract_content_text(response))
+        raw_items = parsed.get('questions', [])
+        if not isinstance(raw_items, list):
             return []
-        return [x for x in items if isinstance(x, dict)]
+        extracted: list[dict[str, Any]] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            question_text = str(item.get('question', '')).strip()
+            normalized_question = self._normalize_question(question_text)
+            if not normalized_question:
+                continue
+            topic_tags = self._sanitize_tags(item.get('topic_tags'))
+            is_algorithm = item.get('is_algorithm') is True
+            if is_algorithm and '算法' not in topic_tags:
+                topic_tags.append('算法')
+            extracted.append(
+                {
+                    'image_id': image.id,
+                    'source_image': image.original_name,
+                    'source_images': [image.original_name],
+                    'question_text': question_text,
+                    'normalized_question': normalized_question,
+                    'topic_tags': topic_tags,
+                    'interview_round': (str(item.get('interview_round', '')).strip() or None),
+                    'confidence': self._safe_confidence(item.get('confidence')),
+                    'source_excerpt': str(item.get('source_excerpt', '')).strip(),
+                    'ocr_raw': transcript,
+                    'is_algorithm': is_algorithm,
+                    'duplicate_count': 1,
+                }
+            )
+        return extracted
 
     def _resolve_cluster(
         self,
@@ -638,6 +662,7 @@ class ExperienceMiningService:
         normalized_question: str,
         topic_tags: list[str],
         company: str | None,
+        vector: list[float] | None = None,
     ) -> tuple[str, bool]:
         # 先尝试精确命中，避免重复调用向量接口
         existed = db.exec(
@@ -651,11 +676,11 @@ class ExperienceMiningService:
             return existed.cluster_id, False
 
         try:
-            vector = self.openrouter.embeddings([normalized_question])[0]
-            self._ensure_collection(len(vector))
+            query_vector = vector or self.openrouter.embeddings([normalized_question])[0]
+            self._ensure_collection(len(query_vector))
             result = self.vector_client.query_points(
                 collection_name=self.collection,
-                query=vector,
+                query=query_vector,
                 limit=1,
                 with_payload=True,
             )
@@ -673,15 +698,15 @@ class ExperienceMiningService:
         self._touch_cluster(db, cluster_id, normalized_question, topic_tags, company)
 
         try:
-            vector = self.openrouter.embeddings([normalized_question])[0]
+            upsert_vector = vector or self.openrouter.embeddings([normalized_question])[0]
             point_id = hashlib.sha1(cluster_id.encode('utf-8')).hexdigest()
-            self._ensure_collection(len(vector))
+            self._ensure_collection(len(upsert_vector))
             self.vector_client.upsert(
                 collection_name=self.collection,
                 points=[
                     PointStruct(
                         id=point_id,
-                        vector=vector,
+                        vector=upsert_vector,
                         payload={
                             'cluster_id': cluster_id,
                             'canonical_question': normalized_question,
@@ -795,6 +820,26 @@ class ExperienceMiningService:
     def _batch_upload_dir(self, batch_id: str) -> Path:
         return Path(settings.data_dir) / 'experience_uploads' / batch_id
 
+    def _artifacts_dir(self, batch_id: str, image_id: str | None = None) -> Path:
+        root = Path(settings.data_dir) / 'experience_artifacts' / batch_id
+        if image_id:
+            return root / image_id
+        return root
+
+    def _write_artifact(
+        self,
+        batch_id: str,
+        image_id: str | None,
+        filename: str,
+        payload: dict[str, Any],
+    ) -> None:
+        target_dir = self._artifacts_dir(batch_id, image_id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / filename).write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding='utf-8',
+        )
+
     def _ensure_collection(self, vector_size: int) -> None:
         try:
             names = [x.name for x in self.vector_client.get_collections().collections]
@@ -836,13 +881,216 @@ class ExperienceMiningService:
                 return data
         except Exception:  # noqa: BLE001
             pass
-        return {'questions': []}
+        return {}
 
     def _normalize_question(self, text: str) -> str:
         x = text.strip()
         x = re.sub(r'\s+', ' ', x)
         x = x.replace('？', '?')
+        x = re.sub(r'^[：:、\-\s]+', '', x)
+        x = re.sub(r'\s*[：:]\s*$', '', x)
         return x[:500]
+
+    def _experience_model(self, runtime_key: str, default: str) -> str:
+        runtime = runtime_llm_config.openrouter()
+        runtime_model = runtime.get(runtime_key)
+        if isinstance(runtime_model, str) and runtime_model.strip():
+            return runtime_model.strip()
+        return default
+
+    def _ocr_response_schema(self) -> dict[str, Any]:
+        return {
+            'type': 'json_schema',
+            'json_schema': {
+                'name': 'experience_ocr_lines',
+                'strict': True,
+                'schema': {
+                    'type': 'object',
+                    'additionalProperties': False,
+                    'properties': {
+                        'lines': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'object',
+                                'additionalProperties': False,
+                                'properties': {
+                                    'text': {'type': 'string'},
+                                },
+                                'required': ['text'],
+                            },
+                        }
+                    },
+                    'required': ['lines'],
+                },
+            },
+        }
+
+    def _question_extract_schema(self) -> dict[str, Any]:
+        return {
+            'type': 'json_schema',
+            'json_schema': {
+                'name': 'experience_question_extract',
+                'strict': True,
+                'schema': {
+                    'type': 'object',
+                    'additionalProperties': False,
+                    'properties': {
+                        'questions': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'object',
+                                'additionalProperties': False,
+                                'properties': {
+                                    'question': {'type': 'string'},
+                                    'topic_tags': {'type': 'array', 'items': {'type': 'string'}},
+                                    'interview_round': {'type': 'string'},
+                                    'confidence': {'type': 'number'},
+                                    'source_excerpt': {'type': 'string'},
+                                    'is_algorithm': {'type': 'boolean'},
+                                },
+                                'required': [
+                                    'question',
+                                    'topic_tags',
+                                    'interview_round',
+                                    'confidence',
+                                    'source_excerpt',
+                                    'is_algorithm',
+                                ],
+                            },
+                        }
+                    },
+                    'required': ['questions'],
+                },
+            },
+        }
+
+    def _slice_image(self, image_path: Path) -> list[Image.Image]:
+        with Image.open(image_path) as source:
+            source.load()
+            if source.height <= settings.experience_slice_threshold:
+                return [source.copy()]
+
+            slices: list[Image.Image] = []
+            step = max(1, settings.experience_slice_height - settings.experience_slice_overlap)
+            top = 0
+            while top < source.height:
+                bottom = min(source.height, top + settings.experience_slice_height)
+                slices.append(source.crop((0, top, source.width, bottom)))
+                if bottom >= source.height:
+                    break
+                top += step
+            return slices
+
+    def _image_to_data_uri(self, image: Image.Image, source_path: Path) -> str:
+        suffix = self._suffix_from_name(source_path.name, None)
+        mime = self._mime_from_suffix(suffix)
+        fmt = 'PNG' if suffix == '.png' else 'JPEG'
+        output = BytesIO()
+        if fmt == 'JPEG' and image.mode not in {'RGB', 'L'}:
+            image = image.convert('RGB')
+        image.save(output, format=fmt)
+        return f'data:{mime};base64,{base64.b64encode(output.getvalue()).decode("utf-8")}'
+
+    def _merge_adjacent_duplicate_lines(self, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        merged: list[dict[str, Any]] = []
+        previous_text = ''
+        for item in lines:
+            text = item.get('text', '').strip()
+            if not text:
+                continue
+            if text == previous_text:
+                continue
+            merged.append(item)
+            previous_text = text
+        return merged
+
+    def _dedupe_questions(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        deduped: dict[str, dict[str, Any]] = {}
+        for item in items:
+            normalized = item['normalized_question']
+            existing = deduped.get(normalized)
+            if not existing:
+                deduped[normalized] = {
+                    **item,
+                    'source_images': list(item.get('source_images', [])),
+                    'duplicate_count': int(item.get('duplicate_count', 1)),
+                }
+                continue
+
+            existing['duplicate_count'] = int(existing.get('duplicate_count', 1)) + 1
+            existing['confidence'] = max(
+                self._safe_confidence(existing.get('confidence')),
+                self._safe_confidence(item.get('confidence')),
+            )
+            if len(item['question_text']) > len(existing['question_text']):
+                existing['question_text'] = item['question_text']
+            if item.get('source_excerpt') and not existing.get('source_excerpt'):
+                existing['source_excerpt'] = item['source_excerpt']
+            if item.get('is_algorithm') is True:
+                existing['is_algorithm'] = True
+            for tag in item.get('topic_tags', []):
+                if tag not in existing['topic_tags']:
+                    existing['topic_tags'].append(tag)
+            for source_image in item.get('source_images', []):
+                if source_image not in existing['source_images']:
+                    existing['source_images'].append(source_image)
+        return list(deduped.values())
+
+    def _embed_questions(self, questions: list[str]) -> list[list[float] | None]:
+        if not questions:
+            return []
+        try:
+            vectors = self.openrouter.embeddings(questions)
+            if len(vectors) == len(questions):
+                return vectors
+        except Exception:  # noqa: BLE001
+            pass
+        return [None for _ in questions]
+
+    def _delete_batch_questions(self, db: Session, batch_id: str) -> None:
+        rows = db.exec(select(ExperienceQuestion).where(ExperienceQuestion.batch_id == batch_id)).all()
+        affected_cluster_ids = {row.cluster_id for row in rows}
+        for row in rows:
+            db.delete(row)
+        db.commit()
+        if affected_cluster_ids:
+            self._refresh_clusters(db, affected_cluster_ids)
+
+    def _refresh_clusters(self, db: Session, cluster_ids: set[str]) -> None:
+        if not cluster_ids:
+            return
+        for cluster_id in cluster_ids:
+            rows = db.exec(select(ExperienceQuestion).where(ExperienceQuestion.cluster_id == cluster_id)).all()
+            cluster = db.get(ExperienceQuestionCluster, cluster_id)
+            if not rows:
+                if cluster:
+                    db.delete(cluster)
+                continue
+            if not cluster:
+                continue
+            rows.sort(key=lambda row: row.created_at)
+            tags: list[str] = []
+            companies: list[str] = []
+            normalized_counts: dict[str, int] = {}
+            for row in rows:
+                normalized_counts[row.normalized_question] = normalized_counts.get(row.normalized_question, 0) + 1
+                for tag in from_json(row.topic_tags_json, []):
+                    if isinstance(tag, str) and tag not in tags:
+                        tags.append(tag)
+                if row.company and row.company not in companies:
+                    companies.append(row.company)
+            canonical_question = max(
+                normalized_counts.items(),
+                key=lambda item: (item[1], len(item[0]), item[0]),
+            )[0]
+            cluster.canonical_question = canonical_question
+            cluster.topic_tags_json = to_json(tags[:20])
+            cluster.companies_json = to_json(companies[:20])
+            cluster.total_count = len(rows)
+            cluster.first_seen_at = min(row.created_at for row in rows)
+            cluster.last_seen_at = max(row.created_at for row in rows)
+            db.add(cluster)
+        db.commit()
 
     def _sanitize_tags(self, tags: Any) -> list[str]:
         if not isinstance(tags, list):

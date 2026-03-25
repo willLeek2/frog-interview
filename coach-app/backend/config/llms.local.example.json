@@ -4,6 +4,8 @@
     "embedding_model": "openai/text-embedding-3-small",
     "audio_model": "openai/gpt-4o-mini-transcribe",
     "vision_model": "openai/gpt-4.1-mini",
+    "experience_ocr_model": "openai/gpt-4.1-mini",
+    "experience_extract_model": "openai/gpt-4.1-mini",
     "timeout_seconds": 45,
     "provider": {
       "allow_fallbacks": true,

@@ -73,11 +73,16 @@ class Settings(BaseSettings):
     chunk_overlap: int = 180
 
     # Experience Mining
+    experience_ocr_model: str = 'openai/gpt-4.1-mini'
+    experience_extract_model: str = 'openai/gpt-4.1-mini'
     qdrant_experience_collection: str = 'coach_experience_questions'
     experience_cluster_threshold: float = 0.84
     experience_batch_max_files: int = 20
     experience_max_image_mb: int = 8
     experience_hot_default_days: int = 180
+    experience_slice_height: int = 2200
+    experience_slice_overlap: int = 240
+    experience_slice_threshold: int = 2600
 
     def cors_origins(self) -> list[str]:
         return [x.strip() for x in self.app_cors_origins.split(',') if x.strip()]

@@ -132,6 +132,7 @@ export default function ExperienceBatchPage() {
 
   const currentTask = latestTask(tasks)
   const activeTask = currentTask && isTaskActive(currentTask.status) ? currentTask : null
+  const latestCompletedTask = currentTask?.status === 'completed' ? currentTask : null
 
   if (!batchId) {
     return (
@@ -172,6 +173,21 @@ export default function ExperienceBatchPage() {
         {activeTask && (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
             当前任务正在处理中，页面会自动刷新任务状态和题目列表。
+          </div>
+        )}
+
+        {latestCompletedTask?.result && (
+          <div className="mb-3 rounded-xl border border-primary-100 bg-primary-50 px-3 py-2 text-xs text-primary-700">
+            <p>
+              本次处理：图片 {latestCompletedTask.result.images_processed ?? '-'} · 原始题目{' '}
+              {latestCompletedTask.result.questions_extracted_raw ?? '-'} · 去重后题目{' '}
+              {latestCompletedTask.result.questions_extracted_unique ?? '-'} · 新建题簇{' '}
+              {latestCompletedTask.result.clusters_created ?? '-'}
+            </p>
+            <p className="mt-1 break-all text-[11px] text-primary-600">
+              OCR 模型：{latestCompletedTask.result.ocr_model || '-'} · 抽题模型：
+              {latestCompletedTask.result.extract_model || '-'}
+            </p>
           </div>
         )}
 

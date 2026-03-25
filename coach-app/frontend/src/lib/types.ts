@@ -157,12 +157,24 @@ export interface ExperienceProcessTask {
   id: string
   batch_id: string
   status: ExperienceTaskStatus
-  result: Record<string, unknown>
+  result: ExperienceProcessTaskResult
   error_message?: string | null
   created_at: string
   updated_at: string
   started_at?: string | null
   finished_at?: string | null
+}
+
+export interface ExperienceProcessTaskResult {
+  batch_id?: string
+  status?: string
+  images_processed?: number
+  ocr_model?: string
+  extract_model?: string
+  questions_extracted_raw?: number
+  questions_extracted_unique?: number
+  clusters_created?: number
+  [key: string]: unknown
 }
 
 export interface ExperienceClusterVariant {

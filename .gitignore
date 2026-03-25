@@ -5,6 +5,7 @@ agent-working-docs/
 node_modules/
 
 pdfs/
+temp/
 
 .DS_Store
 
