@@ -555,7 +555,11 @@ class ExperienceMiningService:
                         ],
                     }
                 ],
-                provider=self.openrouter.provider_preferences('vision'),
+                provider=self.openrouter.provider_preferences(
+                    'vision',
+                    order_key='experience_ocr_order',
+                    settings_order=settings.openrouter_experience_ocr_provider_order,
+                ),
                 extra_body={'response_format': self._ocr_response_schema()},
                 purpose='vision',
             )
@@ -618,7 +622,11 @@ class ExperienceMiningService:
                     ],
                 }
             ],
-            provider=self.openrouter.provider_preferences('chat'),
+            provider=self.openrouter.provider_preferences(
+                'chat',
+                order_key='experience_extract_order',
+                settings_order=settings.openrouter_experience_extract_provider_order,
+            ),
             extra_body={'response_format': self._question_extract_schema()},
             purpose='chat',
         )

@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     openrouter_embedding_provider_order: str | None = None
     openrouter_audio_provider_order: str | None = None
     openrouter_vision_provider_order: str | None = None
+    openrouter_experience_ocr_provider_order: str | None = None
+    openrouter_experience_extract_provider_order: str | None = None
     openrouter_provider_order: str | None = None
     openrouter_allow_fallbacks: bool = True
     openrouter_provider_sort: str = 'price'

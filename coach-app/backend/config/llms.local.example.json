@@ -24,6 +24,14 @@
       "vision_order": [
         "openai",
         "google"
+      ],
+      "experience_ocr_order": [
+        "openai",
+        "google"
+      ],
+      "experience_extract_order": [
+        "openai",
+        "anthropic"
       ]
     }
   }

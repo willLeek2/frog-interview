@@ -98,7 +98,13 @@ class OpenRouterClient:
                     break
         raise RuntimeError(f'OpenRouter 请求失败: {last_err}')
 
-    def provider_preferences(self, purpose: Literal['chat', 'embedding', 'audio', 'vision'] = 'chat') -> dict[str, Any]:
+    def provider_preferences(
+        self,
+        purpose: Literal['chat', 'embedding', 'audio', 'vision'] = 'chat',
+        *,
+        order_key: str | None = None,
+        settings_order: str | None = None,
+    ) -> dict[str, Any]:
         provider: dict[str, Any] = {
             'allow_fallbacks': settings.openrouter_allow_fallbacks,
             'sort': settings.openrouter_provider_sort,
@@ -125,12 +131,16 @@ class OpenRouterClient:
         }
         runtime_order = []
         if isinstance(runtime_provider, dict):
-            runtime_order = self._parse_provider_order_value(runtime_provider.get(f'{purpose}_order'))
+            if order_key:
+                runtime_order = self._parse_provider_order_value(runtime_provider.get(order_key))
+            if not runtime_order:
+                runtime_order = self._parse_provider_order_value(runtime_provider.get(f'{purpose}_order'))
             if not runtime_order:
                 runtime_order = self._parse_provider_order_value(runtime_provider.get('order'))
 
         order = (
             runtime_order
+            or self._parse_provider_order(settings_order)
             or self._parse_provider_order(purpose_order_map.get(purpose))
             or self._parse_provider_order(settings.openrouter_provider_order)
         )

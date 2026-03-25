@@ -277,7 +277,11 @@ def run_ocr(args: argparse.Namespace) -> dict[str, Any]:
     from app.services.openrouter_client import OpenRouterClient
 
     client = OpenRouterClient()
-    provider = client.provider_preferences('vision')
+    provider = client.provider_preferences(
+        'vision',
+        order_key='experience_ocr_order',
+        settings_order=os.environ.get('OPENROUTER_EXPERIENCE_OCR_PROVIDER_ORDER'),
+    )
     schema = build_ocr_response_schema()
     instruction = (
         'Transcribe the main visible post content from this interview screenshot.\n'
@@ -375,7 +379,11 @@ def run_extract(args: argparse.Namespace) -> dict[str, Any]:
     transcript = '\n'.join(line for line in transcript_lines if line)
 
     client = OpenRouterClient()
-    provider = client.provider_preferences('chat')
+    provider = client.provider_preferences(
+        'chat',
+        order_key='experience_extract_order',
+        settings_order=os.environ.get('OPENROUTER_EXPERIENCE_EXTRACT_PROVIDER_ORDER'),
+    )
     schema = build_extract_response_schema()
     metadata_hint = {
         'company': args.company or '',
